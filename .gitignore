@@ -20,3 +20,4 @@ Thumbs.db
 
 # Claude Code local overrides (the shared settings.json stays in git)
 .claude/settings.local.json
+.claude/worktrees/
