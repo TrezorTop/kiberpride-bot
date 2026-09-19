@@ -137,7 +137,8 @@ configurable lives in configuration or the database, never hard-coded.
 ## 8. UX
 
 Neat embeds, understandable names, one style, emoji only where they help, minimum technical
-text, clear errors, no walls of text. Player-facing wording follows rule `plain-language` §8.
+text, clear errors, no walls of text. **Every message a player sees is an embed in the brand
+colour `#226de6`** (decision 012); a message that must ping carries only the mentions as text. Player-facing wording follows rule `plain-language` §8.
 
 ## 9. Growth (not now, but the shape must allow it)
 

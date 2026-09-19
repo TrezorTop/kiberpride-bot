@@ -1,6 +1,6 @@
 # 009. Match rules settled by the owner — ×2 special match, one started match at a time, optional MVP, pings, auto-close of stale recruitments
 
-**Status:** accepted (settles Q8–Q12; amends 008 §3, §6, §8 and 004 §4)
+**Status:** accepted (settles Q8–Q12; amends 008 §3, §6, §8 and 004 §4); §1 amended by 010
 **Date:** 2026-09-19
 **Decided by:** owner (product); the placement in Discord was chosen by the lead and is subject
 to the architect's review

@@ -1,6 +1,6 @@
 # 008. Matches in Discord — `/игры` panel, one-modal creation, a match panel behind the recruitment message, id-suffixed voice channels, a status-announcement marker, fake players for tests
 
-**Status:** accepted (extends 004; amends 007 §1; one migration); §3, §6, §8 amended by 009
+**Status:** accepted (extends 004; amends 007 §1; one migration); §3, §6, §8 amended by 009; §5, §6, §7 amended by 010
 **Date:** 2026-09-19
 **Decided by:** architect (technical)
 
