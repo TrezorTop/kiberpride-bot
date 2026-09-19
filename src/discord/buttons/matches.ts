@@ -3,13 +3,23 @@
 // public message and confirm privately; the recruitment message itself is redrawn by sync.
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
 import { DomainError } from '../../core/errors.js';
+import type { OpenStatusName } from '../../core/match.js';
 import type { JoinResult } from '../../modules/matches/service.js';
 import { mayAddTestPlayers } from '../../modules/matches/testPlayers.js';
 import { snowflakeArg } from '../customId.js';
 import { actorOf, displayNames } from '../member.js';
 import { expectState, idArg, managedMatch, showPanel, versionOf } from '../panels.js';
 import type { ComponentRoute } from '../router.js';
-import { cancelConfirmView, cancelledView, finishedView, mvpView, NO_MVP, winnerFromArg, winnerView } from '../views/matches.js';
+import {
+  cancelConfirmView,
+  cancelledView,
+  finishedView,
+  mvpView,
+  NO_MVP,
+  openStatusFromArg,
+  winnerFromArg,
+  winnerView,
+} from '../views/matches.js';
 
 type Route = ComponentRoute<ButtonInteraction>;
 
@@ -82,22 +92,36 @@ export const confirmFinishButton: Route = {
   },
 };
 
-/** `kp1:mcan:<id>:<v>` — 🚫 Отменить матч: asks first. */
+/**
+ * The status a cancel panel was rendered in (review 2026-09-20). Missing = a panel rendered
+ * before the status was carried: treated strictly (any open status, exact version).
+ */
+function renderedStatus(arg: string | undefined): OpenStatusName | null {
+  if (arg === undefined) return null;
+  const status = openStatusFromArg(arg);
+  if (!status) throw new DomainError('STALE_PANEL', `bad status ${arg}`);
+  return status;
+}
+
+/** `kp1:mcan:<id>:<v>:<R|T|P>` — 🚫 Отменить матч: asks first. RECRUITING ignores the version. */
 export const cancelButton: Route = {
   defer: 'update',
   async run(interaction, args, ctx) {
+    const rendered = renderedStatus(args[2]);
     const { match } = await managedMatch(interaction, ctx, idArg(args[0]));
-    expectState(match, match.status, versionOf(args[1]));
+    const version = versionOf(args[1]);
+    expectState(match, rendered ?? match.status, rendered === 'RECRUITING' ? null : version);
     await interaction.editReply(cancelConfirmView(match));
   },
 };
 
-/** `kp1:mccf:<id>:<v>` — 🚫 Да, отменить. */
+/** `kp1:mccf:<id>:<v>:<R|T|P>` — 🚫 Да, отменить. */
 export const confirmCancelButton: Route = {
   defer: 'update',
   async run(interaction, args, ctx) {
     const id = idArg(args[0]);
-    await ctx.matches.cancel(await actorOf(interaction), id, versionOf(args[1]));
+    const rendered = renderedStatus(args[2]);
+    await ctx.matches.cancel(await actorOf(interaction), id, versionOf(args[1]), rendered);
     await interaction.editReply(cancelledView(await ctx.matches.get(id)));
   },
 };
@@ -119,7 +143,7 @@ export const specialButton: Route = {
     const id = idArg(args[0]);
     const on = args[1] === '1';
     await ctx.matches.setSpecial(await actorOf(interaction), id, on);
-    await showPanel(interaction, ctx, id, on ? '⭐ Теперь это особый матч — все награды ×2.' : 'Матч снова обычный — награды как в настройках.');
+    await showPanel(interaction, ctx, id, on ? '⭐ Теперь это особый матч — все награды ×2.' : 'Матч снова обычный — награды без ×2.');
   },
 };
 

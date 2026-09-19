@@ -12,13 +12,14 @@ import {
   OPEN_STATUSES,
   type MatchSnapshot,
   type MatchStatusName,
+  type OpenStatusName,
   type RewardAmounts,
   type TeamModeName,
   type WinnerName,
 } from '../../core/match.js';
 import type { GuildGateway } from '../../core/ports.js';
 import { Prisma, type Db, type Tx } from '../../db/client.js';
-import { withTx } from '../../db/tx.js';
+import { withTx, withTxRetry } from '../../db/tx.js';
 import type { EconomyService } from '../economy/service.js';
 import type { GamesService } from '../games/service.js';
 import type { LoggingService } from '../logging/service.js';
@@ -29,6 +30,7 @@ import { DEFAULT_TITLE, MAX_TEAM_SIZE, MAX_TITLE_LENGTH, MIN_TEAM_SIZE } from '.
 import { payoutPlan, type PayoutLine } from './payout.js';
 import { shuffle } from './shuffle.js';
 import { createSyncer } from './sync.js';
+import { createFailureDedupe } from './syncFailures.js';
 import { createSyncQueue } from './syncQueue.js';
 import { mayAddTestPlayers } from './testPlayers.js';
 
@@ -48,6 +50,14 @@ export interface JoinResult {
   participantCount: number;
   capacity: number;
   status: MatchStatusName;
+}
+
+/** A player taken out of another recruitment because a match of theirs started (decision 011). */
+interface Withdrawal {
+  matchId: number;
+  userId: string;
+  /** The other match was TEAMS_PENDING and went back to RECRUITING. */
+  reopened: boolean;
 }
 
 export interface FinishInput {
@@ -72,7 +82,12 @@ export interface MatchesService {
   /** ⭐ special match ×2, RECRUITING only (decision 009 §1). Returns the new version. */
   setSpecial(actor: MemberFacts, id: number, special: boolean): Promise<number>;
   finish(actor: MemberFacts, input: FinishInput): Promise<{ paid: PayoutLine[]; withheld: PayoutLine[] }>;
-  cancel(actor: MemberFacts, id: number, version: number): Promise<void>;
+  /**
+   * `rendered` is the status the pressed panel showed: the status must still be it, and the
+   * version must still be `version` unless it was RECRUITING. null (a panel from before the
+   * status was carried) = any open status, version strict.
+   */
+  cancel(actor: MemberFacts, id: number, version: number, rendered?: OpenStatusName | null): Promise<void>;
   /** The recruit timeout (009 §5): cancels RECRUITING matches created before `cutoff`. */
   cancelStaleRecruitments(cutoff: Date): Promise<number[]>;
   /** A player left the Discord server (004 §5, 008 §9). Returns the affected match ids. */
@@ -87,6 +102,8 @@ export interface MatchesService {
   enqueueSync(id: number): Promise<void>;
   /** Ids needing a sync at startup: non-terminal, or syncedVersion < version. */
   needingSync(): Promise<number[]>;
+  /** Ids whose Discord side lags the database (syncedVersion < version): the sync-retry job. */
+  unsynced(): Promise<number[]>;
   /** Deletes orphaned team channels (008 §7). Returns how many. */
   cleanupOrphans(): Promise<number>;
   /** Resolves when no sync is running or waiting. */
@@ -125,13 +142,26 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
   const autoSync = deps.autoSync ?? true;
 
   const syncer = createSyncer({ db, gateway, permissions, settings: deps.settings, logging, clock, load });
+  const failures = createFailureDedupe();
   const queue = createSyncQueue(syncer.sync, (id, err) => {
-    void logging.failure(
-      'match.sync_failed',
-      { matchId: id, err },
-      `⚠️ Матч #${id}: не удалось обновить сообщение или каналы в Discord — повторю при следующем изменении или перезапуске. Подробности в логе процесса.`,
-    );
+    void reportSyncFailure(id, err);
   });
+
+  async function reportSyncFailure(id: number, err: unknown): Promise<void> {
+    const version = await db.match.findUnique({ where: { id }, select: { version: true } }).then(
+      (m) => m?.version ?? null,
+      () => null, // the database is down too: report without deduping
+    );
+    if (version !== null && !failures.firstFor(id, version)) {
+      await logging.failure('match.sync_failed', { matchId: id, version, repeated: true, err });
+      return;
+    }
+    await logging.failure(
+      'match.sync_failed',
+      { matchId: id, version, err },
+      `⚠️ Матч #${id}: не удалось обновить сообщение или каналы в Discord — пробую снова каждую минуту. Подробности в логе процесса.`,
+    );
+  }
   const schedule = (id: number) => {
     if (autoSync) void queue.enqueue(id);
   };
@@ -213,10 +243,56 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
     return { from, version: updated[0].version };
   }
 
-  async function joinTx(id: number, userId: string): Promise<JoinResult & { teams?: { a: string[]; b: string[] } }> {
+  /**
+   * Decision 011: a match that starts takes its players out of every other RECRUITING or
+   * TEAMS_PENDING match, in its own transaction (a TEAMS_PENDING one reopens, as on a removal).
+   * Locks after the started Match row: its players' User rows ascending — the lock a concurrent
+   * join of one of them waits on, so no sign-up slips in unseen — then the other Match rows
+   * ascending. Two starts sharing players can still lock crosswise; withTxRetry re-runs the loser.
+   */
+  async function withdrawElsewhere(tx: Tx, startedId: number): Promise<Withdrawal[]> {
+    await tx.$queryRaw`
+      SELECT u."id" FROM "User" u
+      WHERE u."id" IN (SELECT p."userId" FROM "Participant" p WHERE p."matchId" = ${startedId})
+      ORDER BY u."id" FOR UPDATE`;
+    const pairs = await tx.$queryRaw<{ matchId: number; userId: string }[]>`
+      SELECT o."matchId", o."userId" FROM "Participant" p
+      JOIN "Participant" o ON o."userId" = p."userId" AND o."matchId" <> p."matchId"
+      JOIN "Match" m ON m."id" = o."matchId"
+      WHERE p."matchId" = ${startedId} AND m."status" IN ('RECRUITING', 'TEAMS_PENDING')
+      ORDER BY o."matchId", o."userId"`;
+    if (pairs.length === 0) return [];
+    const others = [...new Set(pairs.map((x) => x.matchId))];
+    await tx.$queryRaw`SELECT "id" FROM "Match" WHERE "id" IN (${Prisma.join(others)}) ORDER BY "id" FOR UPDATE`;
+    const out: Withdrawal[] = [];
+    for (const { matchId, userId } of pairs) {
+      try {
+        const { from } = await removeTx(tx, matchId, userId, ['RECRUITING', 'TEAMS_PENDING'], 'NOT_IN_MATCH');
+        out.push({ matchId, userId, reopened: from === 'TEAMS_PENDING' });
+      } catch (err) {
+        if (!isDomainError(err)) throw err; // cancelled meanwhile: nothing to take the player out of
+      }
+    }
+    return out;
+  }
+
+  async function afterWithdrawals(startedId: number, list: readonly Withdrawal[]) {
+    for (const w of list) {
+      await logging.event(
+        'match.withdrawn',
+        { matchId: w.matchId, userId: w.userId, startedMatchId: startedId, reopened: w.reopened },
+        `↪️ ${who(w.userId)} выписан из набора #${w.matchId} — начался матч #${startedId}.${w.reopened ? ' Набор снова открыт.' : ''}`,
+      );
+      schedule(w.matchId);
+    }
+  }
+
+  async function joinTx(id: number, userId: string): Promise<JoinResult & { teams?: { a: string[]; b: string[] }; withdrawals: Withdrawal[] }> {
     const now = clock.now();
-    return withTx(db, async (tx) => {
+    return withTxRetry(db, async (tx) => {
       await tx.$executeRaw`INSERT INTO "User" ("id") VALUES (${userId}) ON CONFLICT ("id") DO NOTHING`;
+      // 011: a start that would withdraw this player holds this row; wait for it, then see it.
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
 
       // 009 §2: a player in a started match cannot sign up anywhere else until it ends.
       const busy = await tx.$queryRaw<{ id: number }[]>`
@@ -253,7 +329,7 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
         ON CONFLICT ("matchId", "userId") DO NOTHING RETURNING "id"`;
       if (!inserted[0]) throw new DomainError('ALREADY_JOINED', `user ${userId} match ${id}`);
 
-      const result: JoinResult = { status: updated.status, participantCount: updated.participantCount, capacity: updated.capacity };
+      const result = { status: updated.status, participantCount: updated.participantCount, capacity: updated.capacity, withdrawals: [] };
       if (updated.status !== 'IN_PROGRESS') return result;
 
       // AUTO split in the same transaction (004 §2).
@@ -273,7 +349,7 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
       const b = mixed.slice(updated.teamSize);
       await tx.participant.updateMany({ where: { matchId: id, userId: { in: a } }, data: { team: 'A' } });
       await tx.participant.updateMany({ where: { matchId: id, userId: { in: b } }, data: { team: 'B' } });
-      return { ...result, teams: { a, b } };
+      return { ...result, teams: { a, b }, withdrawals: await withdrawElsewhere(tx, id) };
     });
   }
 
@@ -309,7 +385,9 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
           ${version === null ? Prisma.empty : Prisma.sql`AND "version" = ${version}`}
           ${createdBefore === null ? Prisma.empty : Prisma.sql`AND "createdAt" < ${createdBefore}`}
         RETURNING "id"`;
-      if (!rows[0]) throw await refusal(tx, id, locked[0]?.status ?? 'RECRUITING', version);
+      // One allowed status is the rendered one: a match that moved on is a stale panel.
+      const expected = from.length === 1 && from[0] ? from[0] : (locked[0]?.status ?? 'RECRUITING');
+      if (!rows[0]) throw await refusal(tx, id, expected, version);
       return locked[0]?.status ?? 'RECRUITING';
     });
     const why = actorId === null ? 'набор закрыт по времени' : `отменил ${who(actorId)}`;
@@ -415,6 +493,7 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
       const result = await joinTx(id, userId);
       await afterJoin(id, userId, result);
       schedule(id);
+      await afterWithdrawals(id, result.withdrawals);
       return { status: result.status, participantCount: result.participantCount, capacity: result.capacity };
     },
 
@@ -468,7 +547,7 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
     async confirmTeams(actor, id, version) {
       await requireManage(actor, await basic(id));
       const now = clock.now();
-      await withTx(db, async (tx) => {
+      const withdrawals = await withTxRetry(db, async (tx) => {
         const rows = await tx.$queryRaw<{ id: number }[]>`
           UPDATE "Match" m SET "status" = 'IN_PROGRESS'::"MatchStatus", "version" = m."version" + 1, "startedAt" = ${now}
           WHERE m."id" = ${id} AND m."status" = 'TEAMS_PENDING' AND m."version" = ${version}
@@ -476,26 +555,35 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
             AND (SELECT count(*) FROM "Participant" p WHERE p."matchId" = m."id" AND p."team" = 'B') = m."teamSize"
           RETURNING m."id"`;
         if (!rows[0]) throw await refusal(tx, id, 'TEAMS_PENDING', version);
+        return withdrawElsewhere(tx, id);
       });
       await logging.event('match.started', { matchId: id, actorId: actor.userId }, `🎮 Матч #${id}: ${who(actor.userId)} подтвердил команды, матч начался.`);
       schedule(id);
+      await afterWithdrawals(id, withdrawals);
     },
 
     async setSpecial(actor, id, special) {
-      const m = await basic(id);
-      await requireManage(actor, m);
-      // 009 §1: recomputed from the settings, ×2 or ×1 — never halved, so odd amounts stay exact.
-      const rewards = scaleRewards(await deps.rewards.resolveFor(m.gameId), special ? 2 : 1);
-      const version = await withTx(db, async (tx) => {
+      await requireManage(actor, await basic(id));
+      // 009 §1 as amended by the review of 2026-09-20: ×2 scales the snapshot taken at creation,
+      // never today's settings, so a rule changed meanwhile does not leak into an open match.
+      // A same-state toggle is a no-op, so «on» always holds exactly twice the «off» amounts.
+      const outcome = await withTx(db, async (tx) => {
+        const locked = await tx.$queryRaw<{ status: MatchStatusName; special: boolean; rewards: unknown; version: number }[]>`
+          SELECT "status", "special", "rewards", "version" FROM "Match" WHERE "id" = ${id} FOR UPDATE`;
+        const row = locked[0];
+        if (!row) throw new DomainError('NOT_FOUND', `match ${id}`);
+        if (row.status !== 'RECRUITING') throw new DomainError('SPECIAL_ONLY_RECRUITING', `match ${id} is ${row.status}`);
+        if (row.special === special) return { version: row.version, rewards: null }; // already in the asked state
+        const current = parseRewards(row.rewards);
+        const rewards = special ? scaleRewards(current, 2) : halveRewards(current, id);
         const rows = await tx.$queryRaw<{ version: number }[]>`
           UPDATE "Match" SET "special" = ${special}, "rewards" = ${JSON.stringify(rewards)}::jsonb, "version" = "version" + 1
-          WHERE "id" = ${id} AND "status" = 'RECRUITING' AND "special" <> ${special} RETURNING "version"`;
-        if (rows[0]) return rows[0].version;
-        const now = await tx.match.findUnique({ where: { id }, select: { status: true, version: true } });
-        if (now?.status !== 'RECRUITING') throw new DomainError('SPECIAL_ONLY_RECRUITING', `match ${id} is ${now?.status}`);
-        return null; // already in the asked state: nothing to do
+          WHERE "id" = ${id} RETURNING "version"`;
+        if (!rows[0]) throw new Error(`match ${id}: row changed under a FOR UPDATE lock`);
+        return { version: rows[0].version, rewards };
       });
-      if (version === null) return (await basicVersion(id)) ?? 0;
+      const { version, rewards } = outcome;
+      if (rewards === null) return version;
       await logging.event(
         'match.special',
         { matchId: id, special, rewards, actorId: actor.userId },
@@ -567,9 +655,17 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
       return { paid, withheld };
     },
 
-    async cancel(actor, id, version) {
+    async cancel(actor, id, version, rendered = null) {
       await requireManage(actor, await basic(id));
-      await cancelTransition({ id, actorId: actor.userId, from: OPEN_STATUSES, version, createdBefore: null });
+      // Review 2026-09-20: joins bump the version every few seconds while recruiting, so a
+      // RECRUITING panel is guarded by its status alone; the later states keep the version guard.
+      await cancelTransition({
+        id,
+        actorId: actor.userId,
+        from: rendered === null ? OPEN_STATUSES : [rendered],
+        version: rendered === 'RECRUITING' ? null : version,
+        createdBefore: null,
+      });
     },
 
     async cancelStaleRecruitments(cutoff) {
@@ -646,6 +742,7 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
           const result = await joinTx(id, fakeUserId(k));
           count = result.participantCount;
           added++;
+          await afterWithdrawals(id, result.withdrawals);
         } catch (err) {
           if (isDomainError(err) && (err.code === 'ALREADY_JOINED' || err.code === 'BUSY_IN_MATCH')) continue;
           if (isDomainError(err) && err.code === 'MATCH_CLOSED') break;
@@ -668,14 +765,25 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
       return rows.map((r) => r.id);
     },
 
+    async unsynced() {
+      const rows = await db.$queryRaw<{ id: number }[]>`
+        SELECT "id" FROM "Match" WHERE "syncedVersion" < "version" ORDER BY "id"`;
+      return rows.map((r) => r.id);
+    },
+
     cleanupOrphans: syncer.cleanupOrphans,
     idle: () => queue.idle(),
   };
   return service;
+}
 
-  async function basicVersion(id: number): Promise<number | null> {
-    return (await db.match.findUnique({ where: { id }, select: { version: true } }))?.version ?? null;
-  }
+/** ×2 switched off: exact, since «on» amounts are always the doubled «off» ones. Odd = corrupt. */
+function halveRewards(amounts: RewardAmounts, matchId: number): RewardAmounts {
+  const half = (n: number) => {
+    if (n % 2 !== 0) throw new Error(`match ${matchId}: special reward ${n} is not even`);
+    return n / 2;
+  };
+  return { participation: half(amounts.participation), win: half(amounts.win), mvp: half(amounts.mvp), draw: half(amounts.draw) };
 }
 
 type MatchRow = Prisma.MatchGetPayload<{

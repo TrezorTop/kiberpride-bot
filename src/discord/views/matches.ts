@@ -21,6 +21,7 @@ import {
   isFakeUserId,
   type MatchSnapshot,
   type MatchStatusName,
+  type OpenStatusName,
   type ParticipantSnapshot,
   type RewardAmounts,
   type TeamName,
@@ -60,6 +61,19 @@ export const WINNER_ARG: Record<WinnerName, string> = { A: 'A', B: 'B', DRAW: 'D
 
 export function winnerFromArg(arg: string | undefined): WinnerName | null {
   return arg === 'A' ? 'A' : arg === 'B' ? 'B' : arg === 'D' ? 'DRAW' : null;
+}
+
+// The status a cancel panel was rendered in, carried in `mcan`/`mccf` (review 2026-09-20).
+const OPEN_STATUS_ARG: Partial<Record<MatchStatusName, string>> = { RECRUITING: 'R', TEAMS_PENDING: 'T', IN_PROGRESS: 'P' };
+
+function openStatusArg(status: MatchStatusName): string {
+  const arg = OPEN_STATUS_ARG[status];
+  if (!arg) throw new Error(`no cancel button in status ${status}`);
+  return arg;
+}
+
+export function openStatusFromArg(arg: string | undefined): OpenStatusName | null {
+  return arg === 'R' ? 'RECRUITING' : arg === 'T' ? 'TEAMS_PENDING' : arg === 'P' ? 'IN_PROGRESS' : null;
 }
 
 /** A player as the message shows them; fake players never become mentions (008 §10). */
@@ -383,7 +397,7 @@ export function matchPanelView(m: MatchSnapshot, names: Names, flags: PanelFlags
   }
 
   const components: Row[] = [];
-  const cancel = button(encodeCustomId('mcan', m.id, m.version), '🚫 Отменить матч', ButtonStyle.Danger);
+  const cancel = () => button(encodeCustomId('mcan', m.id, m.version, openStatusArg(m.status)), '🚫 Отменить матч', ButtonStyle.Danger);
   const remove = () =>
     new StringSelectMenuBuilder()
       .setCustomId(encodeCustomId('mrm', m.id))
@@ -398,7 +412,7 @@ export function matchPanelView(m: MatchSnapshot, names: Names, flags: PanelFlags
         : button(encodeCustomId('mspc', m.id, 1), '⭐ Особый матч ×2', ButtonStyle.Secondary),
     ];
     if (flags.canTest) buttons.push(button(encodeCustomId('mtest', m.id), '🧪 Добавить тестовых игроков', ButtonStyle.Secondary));
-    buttons.push(cancel);
+    buttons.push(cancel());
     components.push(row(...buttons));
   } else if (m.status === 'TEAMS_PENDING') {
     const picker = new StringSelectMenuBuilder()
@@ -418,10 +432,10 @@ export function matchPanelView(m: MatchSnapshot, names: Names, flags: PanelFlags
     components.push(
       row(picker),
       row(remove()),
-      row(button(encodeCustomId('mtok', m.id, m.version), '✅ Подтвердить команды', ButtonStyle.Success, !ready), cancel),
+      row(button(encodeCustomId('mtok', m.id, m.version), '✅ Подтвердить команды', ButtonStyle.Success, !ready), cancel()),
     );
   } else if (m.status === 'IN_PROGRESS') {
-    components.push(row(button(encodeCustomId('mfin', m.id), '🏁 Завершить матч', ButtonStyle.Primary), cancel));
+    components.push(row(button(encodeCustomId('mfin', m.id), '🏁 Завершить матч', ButtonStyle.Primary), cancel()));
   }
   return { embeds: [embed], components };
 }
@@ -490,7 +504,7 @@ export function cancelConfirmView(m: MatchSnapshot): View {
   const embed = brandEmbed()
     .setTitle(`🚫 Отменить матч #${m.id}?`)
     .setDescription(`${heading(m)} · ${m.title}\nИгроки получат уведомление, KP Coin не начисляются, голосовые каналы удалятся.`);
-  return { embeds: [embed], components: [row(button(encodeCustomId('mccf', m.id, m.version), '🚫 Да, отменить', ButtonStyle.Danger))] };
+  return { embeds: [embed], components: [row(button(encodeCustomId('mccf', m.id, m.version, openStatusArg(m.status)), '🚫 Да, отменить', ButtonStyle.Danger))] };
 }
 
 export function cancelledView(m: MatchSnapshot): View {

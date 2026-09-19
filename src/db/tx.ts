@@ -1,5 +1,6 @@
 // Transactions and raw-SQL helpers. READ COMMITTED everywhere: idempotency and serialisation
 // come from unique indexes and conditional UPDATEs, not from SERIALIZABLE (decision 003 §4).
+import { setTimeout as sleep } from 'node:timers/promises';
 import { Prisma, type Db, type Tx } from './client.js';
 
 export type TxRunner = <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
@@ -11,6 +12,31 @@ export function withTx<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
     maxWait: 10_000,
     timeout: 15_000,
   });
+}
+
+const RETRY_ATTEMPTS = 3;
+
+/**
+ * `withTx` that re-runs the whole transaction when Postgres aborted it as a deadlock victim
+ * (40P01) or on a serialization failure (40001). For transitions whose lock order cannot be made
+ * global — a match starting withdraws its players from other recruitments (decision 011). The
+ * retried function re-reads everything, so it may now fail with an ordinary domain refusal.
+ */
+export async function withTxRetry<T>(db: Db, fn: (tx: Tx) => Promise<T>, attempts = RETRY_ATTEMPTS): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await withTx(db, fn);
+    } catch (err) {
+      if (attempt >= attempts || !isRetryableConflict(err)) throw err;
+      await sleep(10 * attempt + Math.floor(Math.random() * 40)); // jitter: the two losers must not collide again
+    }
+  }
+}
+
+/** Deadlock victim (40P01) or serialization failure (40001); Prisma's own name for both is P2034. */
+export function isRetryableConflict(err: unknown): boolean {
+  const state = sqlState(err);
+  return hasCode(err, 'P2034') || state === '40P01' || state === '40001';
 }
 
 export function txRunner(db: Db): TxRunner {

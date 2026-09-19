@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { voiceChannelName } from '../../../src/core/match.js';
 import { runRecruitTimeout, staleCutoff } from '../../../src/jobs/recruitTimeout.js';
+import { runSyncRetry } from '../../../src/jobs/syncRetry.js';
 import { createSettingsService } from '../../../src/modules/settings/service.js';
 import { testDb } from '../helpers.js';
 import { CATEGORY, expectInvariants, fill, harness, newMatch, ORGANISER, OWNER, player, RECRUIT, startedMatch } from './harness.js';
@@ -179,6 +180,48 @@ describe('needingSync', () => {
     expect(await h.matches.needingSync()).toEqual([open, done]);
   });
 });
+
+describe('sync retry (review 2026-09-20)', () => {
+  it('unsynced lists exactly the matches whose Discord side lags, open or not', async () => {
+    const h = await harness();
+    const lagging = await newMatch(h);
+    const synced = await newMatch(h);
+    await h.matches.sync(synced);
+    const ended = await newMatch(h);
+    await h.matches.cancel(ORGANISER, ended, (await h.matches.get(ended)).version);
+    expect(await h.matches.unsynced()).toEqual([lagging, ended]);
+  });
+
+  it('a failing sync is retried by the job, told to the log channel once per version, and repaired when Discord is back', async () => {
+    const h = await harness({ autoSync: true });
+    const id = await newMatch(h);
+    h.gateway.failRenders = true;
+    await h.matches.join(id, player(1));
+    await h.matches.idle();
+    await runSyncRetry({ matches: h.matches, logging: h.logging });
+    await runSyncRetry({ matches: h.matches, logging: h.logging });
+    await flush();
+    const failures = () => h.logging.events.filter((e) => e.name === 'match.sync_failed');
+    expect(failures()).toHaveLength(3); // the join's sync and two retries, all in the process log
+    expect(failures().filter((e) => e.audit)).toHaveLength(1); // the log channel heard it once
+
+    await h.matches.join(id, player(2)); // a new version fails again: one more channel line
+    await h.matches.idle();
+    await flush();
+    expect(failures().filter((e) => e.audit)).toHaveLength(2);
+
+    h.gateway.failRenders = false;
+    expect(await runSyncRetry({ matches: h.matches, logging: h.logging })).toEqual([id]);
+    const m = await db().match.findUniqueOrThrow({ where: { id } });
+    expect(m.syncedVersion).toBe(m.version);
+    expect(await h.matches.unsynced()).toEqual([]);
+  });
+});
+
+/** Failure reports are fire-and-forget (they read the version first); let them land. */
+async function flush(): Promise<void> {
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 20));
+}
 
 describe('recruit timeout job (decision 009 §5)', () => {
   it('computes no cutoff for 0 hours and an exact one otherwise', () => {
