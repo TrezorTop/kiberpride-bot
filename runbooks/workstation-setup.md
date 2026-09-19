@@ -23,9 +23,18 @@ winget install --id Docker.DockerDesktop -e --accept-package-agreements
 OpenSSH client ships with Windows 10/11; if `ssh` is missing:
 `Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0` in an elevated PowerShell.
 
-Docker Desktop needs WSL2 and one reboot on a fresh machine. **OWNER:** the reboot, and the
-Docker Desktop first-start window (accept its terms is the owner's click — the agent does not
-click through terms). Tell the owner in one sentence why the machine restarts.
+Add `--silent` to each winget install so no installer window waits for a click. Windows may still
+show one admin prompt («Разрешить этому приложению…?»); warn the owner to press «Да».
+
+Docker Desktop needs WSL2 and one reboot on a fresh machine. If `wsl --status` says WSL is not
+installed, run `Start-Process wsl.exe -ArgumentList '--install','--no-distribution' -Verb RunAs
+-Wait` (one admin prompt). `wsl --status` then complains that virtualization is off until the
+reboot. `VirtualizationFirmwareEnabled = False` together with `HypervisorPresent = True` is
+normal, and it went away after the reboot on the owner's machine. Do the reboot AFTER the
+scaffold is written: a background helper dies with it. Leave a note in
+`docs/for-owner/status.md` first. **OWNER:** the reboot, and the Docker Desktop first-start
+window. Accepting its terms is the owner's click; the agent does not click through terms.
+Tell the owner in one sentence why the machine restarts.
 
 ## 3. Git identity
 
@@ -38,6 +47,10 @@ git config --global core.autocrlf false
 Ask the owner for the name only if it is not derivable; the email is the GitHub account's.
 
 ## 4. GitHub sign-in (once)
+
+First check `gh auth status` and `gh api repos/<owner>/<repo> --jq .permissions.push`. On the
+owner's machine, `gh` was already signed in to an account with push rights, so this step did
+not happen.
 
 The repository is public, so reading needs nothing. The first `git push` opens a browser window
 from Git Credential Manager. **OWNER:** signs in to GitHub in that window and clicks «Authorize».
@@ -67,5 +80,9 @@ The preflight says in one line when Docker Desktop is installed but not running.
 
 ---
 
-Last verified: 2026-09-19 (written; not yet run on the owner's machine — the first run updates
-this footer and any step that differed).
+Last verified: 2026-09-19. Walked on the owner's machine (Windows 11 Pro):
+- Git was already installed.
+- Node 24 LTS, gh 2.101 and Docker Desktop 4.91 were installed by winget.
+- WSL was installed and the machine rebooted.
+- `npm run check` passed, and `npm run dev` served the test server.
+- The git identity was already set; `core.autocrlf false` was applied.

@@ -11,13 +11,23 @@ in one or two Russian sentences and wait.
 2. Left menu «Bot» → «Reset Token» → copy the token (shown once).
 3. Same page, «Privileged Gateway Intents»: turn on **Server Members Intent** (needed to handle a
    player leaving the server). Message Content is NOT needed — everything is slash commands and
-   buttons.
+   buttons. The owner skipped this step on the first run. The bot's log then says `Used
+   disallowed intents` (gateway close code 4014). Open
+   `https://discord.com/developers/applications/<APPLICATION_ID>/bot` for the owner: switch it on,
+   then «Save Changes».
 
 ## 2. The token into `.env` (never into chat)
 
 The agent runs `notepad .env` (creating it from `.env.example` first) and asks the owner to
 paste the token after `DISCORD_TOKEN=` and save. Then the agent reads the file's SHAPE only
 (`grep -c '^DISCORD_TOKEN=.\{50,\}' .env` → `1`), never prints the value.
+
+What happened on the first run, and what to say up front next time:
+- The owner asked whether to fill `DISCORD_CLIENT_ID` and `DISCORD_GUILD_ID`. Say at once that
+  those two lines stay empty.
+- The owner pasted the token but did not save the file. If the shape check fails, look at the
+  Notepad window title (`Get-Process notepad | Select MainWindowTitle`). A leading `*` means the
+  file is unsaved: ask the owner to press Ctrl+S.
 
 If the owner pasted the token into chat: one calm sentence, then step 1.2 again (Reset Token)
 and this step again. The old token is dead the moment it is reset.
@@ -59,5 +69,9 @@ heartbeat in the log channel confirms.
 
 ---
 
-Last verified: 2026-09-19 (§2–§4 aligned with the scaffold: optional ids, `npm run
-invite-link` checked against the real `.env`; the bot's first start on the test server updates it).
+Last verified: 2026-09-19. §1–§4 were walked with the owner:
+- The application was created and the token saved in `.env`.
+- The invite link was opened for the owner, who picked their test server.
+- On first start the bot served that server, registered `/баланс` and `/профиль`, created
+  `kp-логи` and posted the heartbeat.
+- The owner saw the balance reply.
