@@ -1,6 +1,6 @@
 # 016. Shop settings live in their own command, `/настройки-магазина`
 
-**Status:** accepted (amends 014 §7)
+**Status:** accepted (amends 014 §7); §2 amended by 020 (visibility is Administrator-only)
 **Date:** 2026-09-20
 **Decided by:** owner (product)
 
