@@ -4,7 +4,37 @@
 // `leaks` and fails the call: fake ids must be filtered before the gateway (decision 008 §10).
 import { ensureChannel } from '../../src/core/ensureChannel.js';
 import { isFakeUserId, type MatchSnapshot, type MatchStatusName } from '../../src/core/match.js';
-import type { GuildGateway, VoiceChannelInfo, VoiceChannelSpec } from '../../src/core/ports.js';
+import type {
+  AccessChannelCheck,
+  AccessPermission,
+  AccessReport,
+  GuildGateway,
+  PlayerNotice,
+  RoleCheck,
+  RoleSpec,
+  RoomCategoryCheck,
+  RoomChannelSpec,
+  VoiceChannelInfo,
+  VoiceChannelSpec,
+  VoiceSnapshot,
+} from '../../src/core/ports.js';
+
+export interface FakeRole {
+  id: string;
+  name: string;
+  color: number;
+  /** Placed directly below this role by the last creation or restyle. */
+  below: string | null;
+}
+
+export interface FakeRoom {
+  id: string;
+  name: string;
+  categoryId: string;
+  userLimit: number;
+  locked: boolean;
+  allowUserIds: string[];
+}
 
 interface FakeChannel extends VoiceChannelInfo {
   allowUserIds: string[];
@@ -93,7 +123,7 @@ export class FakeGateway implements GuildGateway {
   }
 
   deleteChannel(id: string): Promise<void> {
-    if (this.channels.delete(id)) this.deleted.push(id); // unknown counts as done
+    if (this.channels.delete(id) || this.rooms.delete(id)) this.deleted.push(id); // unknown counts as done
     return Promise.resolve();
   }
 
@@ -132,5 +162,157 @@ export class FakeGateway implements GuildGateway {
     const id = this.id();
     this.channels.set(id, { id, name, parentId, allowUserIds: [], allowRoleIds: [] });
     return id;
+  }
+
+  // ─── Shop (decision 014 §3) ───────────────────────────────────────────────
+
+  readonly roles = new Map<string, FakeRole>();
+  /** userId → role ids held. */
+  readonly memberRoles = new Map<string, Set<string>>();
+  readonly roleCreates: string[] = [];
+  readonly roleDeletes: string[] = [];
+  /** Every role give/take, in order: `+role:user` / `-role:user`. */
+  readonly roleOps: string[] = [];
+  /** Roles above the bot's highest role. */
+  readonly rolesAboveBot = new Set<string>();
+  /** Role names that exist on the server besides the bot's own roles. */
+  serverRoleNames: string[] = ['@everyone', 'Модератор'];
+  canManageRoles = true;
+  /** Every setMemberRole throws while set: Discord refuses (50013). */
+  failRoleOps = false;
+  /** Access channels that exist; value: @everyone already holds the permission there. */
+  readonly accessChannels = new Map<string, { everyoneHas: boolean; otherRoleIds: string[]; missing: string[] }>();
+  /** channelId → overwrites written: role allow and @everyone deny per permission. */
+  readonly accessOverwrites = new Map<string, { roleId: string; permissions: AccessPermission[] }>();
+  readonly accessCleared: string[] = [];
+  readonly rooms = new Map<string, FakeRoom>();
+  readonly roomCreates: string[] = [];
+  roomCategoryMissing: string[] = [];
+  roomCategoryCount = 0;
+  failRoomChannel = false;
+  readonly disconnects: { userId: string; channelId: string }[] = [];
+  voice: VoiceSnapshot = { afkChannelId: null, channels: [] };
+  readonly dms: { userId: string; notice: PlayerNotice }[] = [];
+  /** Users who do not accept private messages (50007). */
+  readonly dmClosed = new Set<string>();
+
+  /** Every positioning (after a creation or a restyle) throws while set: `setPosition` refused. */
+  failPlacement = false;
+
+  // Same steps as the real ensureRole: create → onCreated → position (decision 017 §1).
+  async ensureRole(spec: RoleSpec): Promise<string> {
+    let role = spec.currentId ? (this.roles.get(spec.currentId) ?? null) : null;
+    if (!role && spec.adoptByName) role = [...this.roles.values()].find((r) => r.name === spec.name) ?? null;
+    let placed = false;
+    if (!role) {
+      role = { id: this.id(), name: spec.name, color: spec.color, below: null };
+      this.roles.set(role.id, role);
+      this.roleCreates.push(role.id);
+      if (spec.onCreated) await spec.onCreated(role.id);
+      placed = true;
+    } else if (spec.restyle) {
+      Object.assign(role, { name: spec.name, color: spec.color });
+      placed = true;
+    }
+    if (placed && spec.belowRoleId) {
+      if (this.failPlacement) throw Object.assign(new Error('Missing Permissions'), { code: 50013 });
+      role.below = spec.belowRoleId;
+    }
+    return role.id;
+  }
+
+  deleteRole(id: string): Promise<void> {
+    if (this.roles.delete(id)) this.roleDeletes.push(id);
+    for (const held of this.memberRoles.values()) held.delete(id);
+    return Promise.resolve();
+  }
+
+  roleMembers(roleId: string): Promise<string[]> {
+    return Promise.resolve([...this.memberRoles].filter(([, held]) => held.has(roleId)).map(([userId]) => userId));
+  }
+
+  setMemberRole(userId: string, roleId: string, on: boolean): Promise<'done' | 'absent'> {
+    this.real([userId], 'setMemberRole');
+    if (this.failRoleOps) return Promise.reject(Object.assign(new Error('Missing Permissions'), { code: 50013 }));
+    if (this.absent.has(userId)) return Promise.resolve('absent');
+    const held = this.memberRoles.get(userId) ?? new Set<string>();
+    if (on) held.add(roleId);
+    else held.delete(roleId);
+    this.memberRoles.set(userId, held);
+    this.roleOps.push(`${on ? '+' : '-'}${roleId}:${userId}`);
+    return Promise.resolve('done');
+  }
+
+  /** Does the member hold the role right now? */
+  holds(userId: string, roleId: string | null | undefined): boolean {
+    return roleId ? (this.memberRoles.get(userId)?.has(roleId) ?? false) : false;
+  }
+
+  roleManageable(roleId: string | null): Promise<RoleCheck> {
+    const exists = roleId !== null && (this.roles.has(roleId) || this.extraRoles.has(roleId));
+    return Promise.resolve({ botCanManageRoles: this.canManageRoles, exists, belowBot: exists && !this.rolesAboveBot.has(roleId) });
+  }
+
+  /** Server roles the bot did not create (an anchor, staff). */
+  readonly extraRoles = new Set<string>();
+
+  guildRoleNames(): Promise<string[]> {
+    return Promise.resolve([...this.serverRoleNames, ...[...this.roles.values()].map((r) => r.name)]);
+  }
+
+  checkAccessChannel(channelId: string): Promise<AccessChannelCheck> {
+    const c = this.accessChannels.get(channelId);
+    if (!c) return Promise.resolve({ exists: false, missing: ['NotFound'], everyoneHas: false });
+    return Promise.resolve({ exists: true, missing: [...c.missing], everyoneHas: c.everyoneHas });
+  }
+
+  async ensureAccessOverwrites(channelId: string, roleId: string, permissions: readonly AccessPermission[]): Promise<AccessReport> {
+    const check = await this.checkAccessChannel(channelId);
+    if (!check.exists) return { ...check, otherRoleIds: [] };
+    if (check.missing.length === 0) this.accessOverwrites.set(channelId, { roleId, permissions: [...permissions] });
+    const c = this.accessChannels.get(channelId);
+    if (c && check.missing.length === 0) c.everyoneHas = false;
+    return { ...(await this.checkAccessChannel(channelId)), otherRoleIds: [...(c?.otherRoleIds ?? [])] };
+  }
+
+  clearAccessOverwrite(channelId: string): Promise<void> {
+    this.accessOverwrites.delete(channelId);
+    this.accessCleared.push(channelId);
+    return Promise.resolve();
+  }
+
+  ensureRoomChannel(spec: RoomChannelSpec): Promise<string> {
+    this.real(spec.allowUserIds, 'ensureRoomChannel');
+    if (this.failRoomChannel) return Promise.reject(Object.assign(new Error('Missing Access'), { code: 50001 }));
+    let room = spec.currentId ? (this.rooms.get(spec.currentId) ?? null) : null;
+    if (!room) room = [...this.rooms.values()].find((r) => r.categoryId === spec.categoryId && r.name === spec.name && !spec.claimedIds.includes(r.id)) ?? null;
+    if (!room) {
+      room = { id: this.id(), name: spec.name, categoryId: spec.categoryId, userLimit: 0, locked: true, allowUserIds: [] };
+      this.rooms.set(room.id, room);
+      this.roomCreates.push(room.id);
+    }
+    Object.assign(room, { name: spec.name, userLimit: spec.userLimit, locked: spec.locked, allowUserIds: [...spec.allowUserIds] });
+    return Promise.resolve(room.id);
+  }
+
+  checkRoomCategory(): Promise<RoomCategoryCheck> {
+    return Promise.resolve({ missing: [...this.roomCategoryMissing], channelCount: this.roomCategoryCount });
+  }
+
+  disconnect(userId: string, channelId: string): Promise<void> {
+    this.real([userId], 'disconnect');
+    this.disconnects.push({ userId, channelId });
+    return Promise.resolve();
+  }
+
+  voiceSnapshot(): Promise<VoiceSnapshot> {
+    return Promise.resolve(this.voice);
+  }
+
+  sendDm(userId: string, notice: PlayerNotice): Promise<'sent' | 'refused'> {
+    this.real([userId], 'sendDm');
+    if (this.dmClosed.has(userId)) return Promise.resolve('refused');
+    this.dms.push({ userId, notice });
+    return Promise.resolve('sent');
   }
 }

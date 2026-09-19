@@ -2,5 +2,11 @@
 import type { ModalSubmitInteraction } from 'discord.js';
 import type { ComponentRoute } from '../router.js';
 import { createMatchModal } from './createMatch.js';
+import { clanRenameModal, newClanModal, roomRenameModal } from './shop.js';
 
-export const modals: ReadonlyMap<string, ComponentRoute<ModalSubmitInteraction>> = new Map([['mnewf', createMatchModal]]);
+export const modals: ReadonlyMap<string, ComponentRoute<ModalSubmitInteraction>> = new Map([
+  ['mnewf', createMatchModal],
+  ['shclan', newClanModal],
+  ['clrenf', clanRenameModal],
+  ['rmnamef', roomRenameModal],
+]);

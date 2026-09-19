@@ -9,6 +9,11 @@ export interface GuildSettingsView {
   autoMoveToVoice: boolean;
   /** An unfilled recruitment is cancelled after this many hours; 0 = never (decision 009 §5). */
   recruitTimeoutHours: number;
+  /** KP of the daily bonus; 0 = off (decision 014 §5). */
+  dailyBonusAmount: number;
+  /** KP per full hour in voice and the most it pays in one Moscow day (decision 014 §6). */
+  voiceKpPerHour: number;
+  voiceDailyCapKp: number;
 }
 
 export type GuildSettingsPatch = Partial<GuildSettingsView>;
@@ -26,7 +31,11 @@ const SINGLETON_ID = 1;
 export function createSettingsService(db: Db): SettingsService {
   return {
     async get() {
-      return toView(await db.guildSettings.upsert({ where: { id: SINGLETON_ID }, create: { id: SINGLETON_ID }, update: {} }));
+      const row = await db.guildSettings.findUnique({ where: { id: SINGLETON_ID } });
+      if (row) return toView(row);
+      // Prisma's upsert is read-then-write: two first reads at once would both try to create.
+      await db.$executeRaw`INSERT INTO "GuildSettings" ("id") VALUES (${SINGLETON_ID}) ON CONFLICT ("id") DO NOTHING`;
+      return toView(await db.guildSettings.findUniqueOrThrow({ where: { id: SINGLETON_ID } }));
     },
     async update(patch) {
       return toView(
@@ -48,5 +57,8 @@ function toView(row: GuildSettingsView): GuildSettingsView {
     defaultVoiceCategoryId: row.defaultVoiceCategoryId,
     autoMoveToVoice: row.autoMoveToVoice,
     recruitTimeoutHours: row.recruitTimeoutHours,
+    dailyBonusAmount: row.dailyBonusAmount,
+    voiceKpPerHour: row.voiceKpPerHour,
+    voiceDailyCapKp: row.voiceDailyCapKp,
   };
 }

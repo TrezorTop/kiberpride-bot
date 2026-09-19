@@ -1,8 +1,10 @@
-// Startup recovery (decisions 004 §6, 008 §7, §9), in this order:
+// Startup recovery (decisions 004 §6, 008 §7, §9, 014 §4.3), in this order:
 //   1. reconcileMembership — players of open matches who left while the bot was offline;
 //   2. sync every match that is open or has syncedVersion < version (messages, channels,
 //      announcements), so buttons and channels match the database;
-//   3. delete orphaned team channels.
+//   3. delete orphaned team channels;
+//   4. the shop: validate every enabled good, then reconcile every grant (the member cache is
+//      filled by bindGuild before this runs).
 // Buttons work even before this finishes: custom_ids carry only ids (decision 002 §4). Each step
 // is independent; one failing is logged and the next still runs.
 import type { AppContext } from './router.js';
@@ -31,4 +33,10 @@ export async function recover(ctx: AppContext): Promise<void> {
     ctx.logger.error({ err }, 'recovery: orphan cleanup failed');
   }
   ctx.logger.info({ leftServer: left.length, synced, orphans }, 'recovery done');
+
+  try {
+    await ctx.shop.startup();
+  } catch (err) {
+    ctx.logger.error({ err }, 'recovery: shop validate/reconcile failed');
+  }
 }

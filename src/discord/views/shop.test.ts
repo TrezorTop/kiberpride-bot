@@ -1,0 +1,150 @@
+// The shop screens (decision 014 §10): one brand colour on every embed (decision 012), every
+// component id decodes to a route that exists, and the texts that carry a guarantee say it.
+import type { ActionRowBuilder, EmbedBuilder, MessageActionRowComponentBuilder } from 'discord.js';
+import { describe, expect, it } from 'vitest';
+import type { GoodAdminView, GrantView, Quote, ShopOverview } from '../../modules/shop/service.js';
+import { DEFAULT_CLAN_PALETTE } from '../../modules/shop/kinds/clanRole.js';
+import { buttons } from '../buttons/index.js';
+import { decodeCustomId } from '../customId.js';
+import { modals } from '../modals/index.js';
+import { selects } from '../selects/index.js';
+import { domainErrorText } from './messages.js';
+import { profileView } from './profile.js';
+import {
+  buyResultView,
+  clanModal,
+  clanPanelView,
+  dailyClaimedEmbed,
+  grantStateText,
+  historyView,
+  playerNoticeEmbed,
+  purchasesView,
+  quoteView,
+  roomNameModal,
+  roomPanelView,
+  shopSettingsView,
+  shopView,
+} from './shop.js';
+import { BRAND_COLOR } from './style.js';
+
+const NOW = new Date('2026-09-20T12:00:00Z');
+const DAY = 86_400_000;
+const U = '300000000000000001';
+const names = new Map([[U, 'Вася']]);
+
+const grant = (over: Partial<GrantView> = {}): GrantView => ({
+  purchaseId: 5,
+  goodId: 1,
+  goodName: 'Доступ к картинкам и GIF',
+  kind: 'channel_permission',
+  periods: 1,
+  grantedAt: NOW,
+  expiresAt: new Date(NOW.getTime() + 10 * DAY),
+  applied: true,
+  ...over,
+});
+const offer = { id: 1, slug: 'media_access', name: 'Доступ к картинкам и GIF', description: 'd', price: 5000, kind: 'channel_permission', validityDays: 30, line: 'Картинки, файлы и GIF' };
+const quote = (over: Partial<Quote> = {}): Quote => ({
+  good: offer,
+  mode: 'new',
+  price: 5000,
+  balance: 8000,
+  shortBy: 0,
+  expectedPeriods: 0,
+  expiresAt: new Date(NOW.getTime() + 30 * DAY),
+  current: null,
+  clanForm: false,
+  palette: null,
+  ...over,
+});
+const clan = { clanId: 1, purchaseId: 2, goodId: 2, name: 'Волки', color: 0xe74c3c, colorLabel: 'Красный', ownerId: U, memberIds: [U.replace(/1$/, '2')], maxMembers: 10, expiresAt: new Date(NOW.getTime() + 5 * DAY), applied: true, isOwner: true, palette: DEFAULT_CLAN_PALETTE };
+const room = { roomId: 1, purchaseId: 3, goodId: 3, name: 'Штаб', channelId: '500000000000000009', userLimit: 5, locked: true, guestIds: [U], expiresAt: new Date(NOW.getTime() + 5 * DAY), applied: true };
+const admin = (kind: string, config: Record<string, unknown>, enabled = false): GoodAdminView => ({
+  good: { id: kind === 'channel_permission' ? 1 : kind === 'clan_role' ? 2 : 3, slug: kind, name: kind, description: '', price: 5000, kind, config, validityDays: 30, enabled },
+  line: '',
+  problems: enabled ? [] : [{ code: 'no_channels' }],
+  warnings: [],
+});
+
+type Rows = ActionRowBuilder<MessageActionRowComponentBuilder>[];
+const views: [string, { embeds: EmbedBuilder[]; components: Rows }][] = [
+  ['shop', shopView({ balance: 8000, goods: [{ ...offer, grant: grant() }], grants: [grant()], inClan: true, hasRoom: true } satisfies ShopOverview, NOW)],
+  ['shop empty', shopView({ balance: 0, goods: [], grants: [], inClan: false, hasRoom: false }, NOW)],
+  ['quote new', quoteView(quote())],
+  ['quote renew', quoteView(quote({ mode: 'renew', expectedPeriods: 2, current: grant() }))],
+  ['quote short', quoteView(quote({ balance: 1000, shortBy: 4000 }))],
+  ['quote pending', quoteView(quote({ mode: 'pending', current: grant({ applied: false }) }))],
+  ['quote clan', quoteView(quote({ clanForm: true, palette: DEFAULT_CLAN_PALETTE }))],
+  ['bought', buyResultView({ purchaseId: 5, goodName: 'Клановая роль', kind: 'clan_role', periods: 1, renewed: false, expiresAt: NOW, applied: false, balanceAfter: 0 })],
+  ['clan owner', clanPanelView(clan, names, NOW)],
+  ['clan member', clanPanelView({ ...clan, isOwner: false }, names, NOW)],
+  ['room', roomPanelView(room, names, NOW, 'заметка')],
+  ['purchases dev', purchasesView([grant()], NOW, { dev: true })],
+  ['history', historyView(U, { entries: [{ id: 1, userId: U, amount: 50, balanceAfter: 50, kind: 'DAILY_BONUS', reference: 'x', description: 'ежедневный бонус', createdAt: NOW }], page: 2, pages: 3, total: 23 }, true)],
+  [
+    'shop settings',
+    shopSettingsView(
+      [admin('channel_permission', { channelIds: ['500000000000000001'] }), admin('clan_role', { anchorRoleId: null }), admin('personal_room', { categoryId: null }, true)],
+      2,
+    ),
+  ],
+  ['profile', profileView({ userId: U, displayName: 'Вася', avatarUrl: null, balance: 10, recent: [], grants: [grant()], dailyLine: '🎁', clan: 'owner', hasRoom: true, devNonce: 'abcdef123456', now: NOW })],
+  ['notices', { embeds: [dailyClaimedEmbed(50, 150, NOW), playerNoticeEmbed({ kind: 'grant_expiring', goodName: 'X', expiresAt: NOW }), playerNoticeEmbed({ kind: 'grant_refunded', goodName: 'X', amount: 5000 })], components: [] }],
+];
+
+describe('shop views', () => {
+  it.each(views)('%s: every embed is in the brand colour (decision 012)', (_name, view) => {
+    expect(view.embeds.length).toBeGreaterThan(0);
+    for (const e of view.embeds) expect(e.toJSON().color).toBe(BRAND_COLOR);
+  });
+
+  it.each(views)('%s: every component id decodes to a registered route, at most 5 rows', (_name, view) => {
+    expect(view.components.length).toBeLessThanOrEqual(5);
+    for (const row of view.components) {
+      for (const c of row.toJSON().components) {
+        const decoded = decodeCustomId((c as { custom_id?: string }).custom_id ?? '');
+        expect(decoded).not.toBeNull();
+        const action = decoded?.action ?? '';
+        expect(buttons.has(action) || selects.has(action)).toBe(true);
+      }
+    }
+  });
+
+  it('the modals submit to registered routes', () => {
+    for (const modal of [clanModal(DEFAULT_CLAN_PALETTE, { goodId: 2 }), clanModal(DEFAULT_CLAN_PALETTE, { rename: true }, { name: 'А', color: 0 }), roomNameModal('Штаб')]) {
+      const decoded = decodeCustomId(modal.toJSON().custom_id);
+      expect(modals.has(decoded?.action ?? '')).toBe(true);
+    }
+  });
+
+  it('shows «⏳ заканчивается» within a day of the end, «⏳ выдаётся» before it is applied (015 §1)', () => {
+    expect(grantStateText(grant({ expiresAt: new Date(NOW.getTime() + DAY - 1000) }), NOW)).toMatch(/^⏳ заканчивается <t:\d+:R>$/);
+    expect(grantStateText(grant(), NOW)).toMatch(/^✅ до <t:\d+:D>$/);
+    expect(grantStateText(grant({ applied: false }), NOW)).toBe('⏳ выдаётся');
+  });
+
+  it('a player who is short sees a disabled button and by how much', () => {
+    const view = quoteView(quote({ balance: 1000, shortBy: 4000 }));
+    expect(view.embeds[0]?.toJSON().description).toContain('не хватает **4 000 KP Coin**');
+    expect((view.components[0]?.toJSON().components[0] as { disabled?: boolean }).disabled).toBe(true);
+  });
+
+  it('a renewal carries the expected period count, never an amount (014 §1)', () => {
+    const view = quoteView(quote({ mode: 'renew', expectedPeriods: 2, current: grant() }));
+    const id = (view.components[0]?.toJSON().components[0] as { custom_id?: string }).custom_id;
+    expect(decodeCustomId(id ?? '')).toEqual({ action: 'shbuy', args: ['1', '2'] });
+  });
+
+  it('the dev buttons appear only when asked for', () => {
+    const plain = profileView({ userId: U, displayName: 'Вася', avatarUrl: null, balance: 0, recent: [], devNonce: null });
+    const ids = plain.components.flatMap((r) => r.toJSON().components.map((c) => (c as { custom_id?: string }).custom_id ?? ''));
+    expect(ids.some((i) => i.startsWith('kp1:dtop'))).toBe(false);
+    expect(purchasesView([grant()], NOW, { dev: false }).components).toEqual([]);
+  });
+
+  it('error texts say what to do next', () => {
+    expect(domainErrorText({ code: 'ALREADY_CLAIMED', params: { at: NOW } })).toContain(`<t:${NOW.getTime() / 1000}:R>`);
+    expect(domainErrorText({ code: 'NAME_INVALID', params: { reason: 'link' } })).toContain('Ссылки');
+    expect(domainErrorText({ code: 'SHOP_UNAVAILABLE' })).toContain('KP Coin не списаны');
+  });
+});

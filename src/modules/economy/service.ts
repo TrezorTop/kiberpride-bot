@@ -4,6 +4,8 @@ import { DomainError } from '../../core/errors.js';
 import type { Db, Tx } from '../../db/client.js';
 import { withTx } from '../../db/tx.js';
 import { TxKind } from '../../generated/prisma/enums.js';
+import { mayUseDevTools } from '../permissions/devTools.js';
+import type { MemberFacts } from '../permissions/service.js';
 
 export { TxKind };
 
@@ -37,6 +39,18 @@ export interface MoveResult {
   applied: boolean;
 }
 
+export interface HistoryPage {
+  entries: LedgerEntry[];
+  /** 1-based, clamped into 1..pages. */
+  page: number;
+  /** At least 1, so an empty history is one empty page. */
+  pages: number;
+  total: number;
+}
+
+/** «🧪 +10 000 KP Coin» (decision 014 §12). */
+export const DEV_TOP_UP_AMOUNT = 10_000;
+
 export interface EconomyService {
   /** Creates the user row on first contact; returns the balance. */
   ensureUser(userId: string): Promise<{ balance: number }>;
@@ -44,10 +58,19 @@ export interface EconomyService {
   move(input: MoveInput, tx?: Tx): Promise<MoveResult>;
   /** Newest first. */
   history(userId: string, limit: number): Promise<LedgerEntry[]>;
+  /** «Вся история», newest first, `size` lines a page (decision 014 §10). */
+  historyPage(userId: string, page: number, size?: number): Promise<HistoryPage>;
+  /**
+   * +10 000 KP with reference `dev:<nonce>`: the nonce is minted when /профиль renders, so a
+   * double press pays once. Test server and guild owner only, checked here as well (014 §12).
+   */
+  devTopUp(actor: MemberFacts, nonce: string, nodeEnv: string): Promise<MoveResult>;
 }
 
+export const HISTORY_PAGE_SIZE = 10;
+
 export function createEconomyService(db: Db): EconomyService {
-  return {
+  const service: EconomyService = {
     async ensureUser(userId) {
       const user = await db.user.upsert({ where: { id: userId }, create: { id: userId }, update: {}, select: { balance: true } });
       return { balance: user.balance };
@@ -65,7 +88,35 @@ export function createEconomyService(db: Db): EconomyService {
         select: ledgerSelect,
       });
     },
+
+    async historyPage(userId, page, size = HISTORY_PAGE_SIZE) {
+      const total = await db.kpTransaction.count({ where: { userId } });
+      const pages = Math.max(1, Math.ceil(total / size));
+      const current = Math.min(Math.max(1, Math.trunc(page) || 1), pages);
+      const entries = await db.kpTransaction.findMany({
+        where: { userId },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (current - 1) * size,
+        take: size,
+        select: ledgerSelect,
+      });
+      return { entries, page: current, pages, total };
+    },
+
+    async devTopUp(actor, nonce, nodeEnv) {
+      if (!mayUseDevTools(actor, nodeEnv)) throw new DomainError('NOT_ALLOWED', 'dev top-up');
+      if (!/^[A-Za-z0-9_-]{6,32}$/.test(nonce)) throw new DomainError('STALE_PANEL', `bad nonce ${nonce}`);
+      return service.move({
+        userId: actor.userId,
+        amount: DEV_TOP_UP_AMOUNT,
+        kind: TxKind.ADMIN_ADJUST,
+        reference: `dev:${nonce}`,
+        description: '🧪 тестовое пополнение',
+        actorId: actor.userId,
+      });
+    },
   };
+  return service;
 }
 
 const ledgerSelect = {

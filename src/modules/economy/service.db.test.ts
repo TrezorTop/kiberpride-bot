@@ -127,6 +127,44 @@ describe('economy.move', () => {
   });
 });
 
+describe('historyPage (decision 014 §10)', () => {
+  it('pages ten lines at a time, newest first, and clamps a page out of range', async () => {
+    const economy = createEconomyService(testDb());
+    for (let i = 1; i <= 23; i++) await economy.move(credit(`admin:h${i}`, i));
+    const first = await economy.historyPage(USER, 1);
+    expect(first).toMatchObject({ page: 1, pages: 3, total: 23 });
+    expect(first.entries.map((e) => e.reference)).toEqual(Array.from({ length: 10 }, (_, i) => `admin:h${23 - i}`));
+    const last = await economy.historyPage(USER, 99);
+    expect(last.page).toBe(3);
+    expect(last.entries.map((e) => e.reference)).toEqual(['admin:h3', 'admin:h2', 'admin:h1']);
+    expect(await economy.historyPage('300000000000000077', 1)).toMatchObject({ page: 1, pages: 1, total: 0, entries: [] });
+  });
+});
+
+describe('devTopUp (decision 014 §12)', () => {
+  const owner = { userId: USER, roleIds: [], isGuildOwner: true, isAdministrator: false };
+
+  it('pays +10 000 once per nonce, even for five presses at once', async () => {
+    const economy = createEconomyService(testDb());
+    const results = await Promise.all(Array.from({ length: 5 }, () => economy.devTopUp(owner, 'nonce-abc123', 'development')));
+    expect(results.filter((r) => r.applied)).toHaveLength(1);
+    await economy.devTopUp(owner, 'nonce-def456', 'development');
+    const s = await state();
+    expect(s.balance).toBe(20_000);
+    expect(s.rows.map((r) => r.reference).sort()).toEqual(['dev:nonce-abc123', 'dev:nonce-def456']);
+    expect(s.ledgerSum).toBe(s.balance);
+  });
+
+  it('refuses anyone but the guild owner, and everyone in production', async () => {
+    const economy = createEconomyService(testDb());
+    await expect(economy.devTopUp({ ...owner, isGuildOwner: false, isAdministrator: true }, 'nonce-abc123', 'development')).rejects.toMatchObject({
+      code: 'NOT_ALLOWED',
+    });
+    await expect(economy.devTopUp(owner, 'nonce-abc123', 'production')).rejects.toMatchObject({ code: 'NOT_ALLOWED' });
+    expect((await state()).rows).toHaveLength(0);
+  });
+});
+
 describe('User balance CHECK constraint (raw SQL in the init migration)', () => {
   it('fires on a raw write that would make a balance negative', async () => {
     const db = testDb();

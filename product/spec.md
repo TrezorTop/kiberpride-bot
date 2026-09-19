@@ -31,8 +31,25 @@ Every KP movement is recorded: who, how much, kind, source, description, time, a
 purchase it relates to. Example lines: `+100 KP Coin — победа в CS2`, `+50 KP Coin — MVP`,
 `-500 KP Coin — доступ к GIF`. The history is the audit trail of the economy.
 
-Planned later, so the design must leave room: daily reward, activity bonuses, tasks, achievements,
-transfers between users, leaderboards, cases, more KP sources.
+**Earnings besides matches (decision 013):** a **daily bonus** of 50 KP Coin, claimed by the player
+once per calendar day (Moscow time); **voice time** — 10 KP Coin per full hour in a voice channel,
+at most 60 a day, counted only when the player is not alone, not deafened and not in the AFK
+channel. Amounts are configuration.
+
+**As built (decision 014):**
+- The bonus is taken with `/бонус` or «🎁 Ежедневный бонус» in `/профиль`; a second press the same
+  day says when the next one opens. `/профиль` shows whether today's bonus is still waiting.
+- Voice time counts whole minutes and pays each full hour; an hour needs at least one other real,
+  non-deafened person in the channel; stage channels never pay; time the bot was offline is not
+  paid, and minutes do not carry over midnight. These payments appear in the history, not in the
+  log channel.
+- «Вся история» pages through every operation, 10 lines a page.
+- `/профиль` also shows the purchases with their end dates and the clan and room buttons.
+- For tests only (never on the live server): the guild owner sees «🧪 +10 000 KP Coin» in
+  `/профиль` and «🧪 Закончить через 2 минуты» on a purchase in «🛍️ Мои покупки».
+
+Planned later, so the design must leave room: activity bonuses, tasks, achievements, transfers
+between users, leaderboards, cases, more KP sources.
 
 ## 2. Shop
 
@@ -43,9 +60,44 @@ of such goods must grow easily.
 A good has: name, description, price, kind, what it grants, validity period, on/off switch. All
 of it is configuration.
 
-**Personal roles are NOT in scope now**, but the shop must be able to sell later: a personal or
-custom role, a role colour, a temporary role, a cosmetic item, access to a feature. So goods are
-an abstract kind with a handler per kind.
+Goods are an abstract kind with a handler per kind, so more can be sold later: a role colour, a
+temporary role, a cosmetic item, access to a feature.
+
+**First-release goods (decision 013)** — every good lasts **30 days**, the bot warns a day before
+the end and takes the grant back at the end; buying again while active extends by 30 days:
+
+| Good | Price | What it grants |
+|---|---|---|
+| Доступ к картинкам и GIF | 5 000 KP Coin | uploading files and showing GIFs / link previews in the channels the admin picked (one good — Discord cannot tell GIFs from link previews; decision 015) |
+| Клановая роль | 15 000 KP Coin | a role the buyer names and colours, and gives to up to 10 clan members (one clan per player); placed just below the staff roles so the colour shows |
+| Личная комната | 10 000 KP Coin | the buyer's own voice channel: who may enter, its name, a user limit |
+
+**As built (decisions 014, 015):**
+- `/магазин` shows the balance, each good with its price, what it grants and the player's state
+  («✅ до …», «⏳ выдаётся», «⏳ заканчивается …» in the last day). Picking a good opens a confirm
+  screen with the price, the new end date and the balance after; a player who is short sees by how
+  much and the button is off.
+- **Clan:** the name and colour are chosen in a form (a list of 12 readable colours, never a colour
+  code); 2–32 characters, no links, no `@ # :`, not equal to an existing role, no staff-like words.
+  The panel «🛡️ Мой клан»: the owner adds members from a list, removes them, renames and recolours;
+  a member sees «🚪 Выйти из клана». The clan role goes directly below the anchor role the admin
+  picks in the settings; without an anchor the clan cannot be switched on.
+- **Room:** created locked in the category the admin picks; the panel «🏠 Моя комната»: name,
+  limit (none, 2–10, 15, 20, 25), open/lock, let guests in (up to 25), remove a guest (who is also
+  taken out of the channel). The owner never gets Discord's own channel controls.
+- **The end:** a private message a day before; if private messages are closed, the note in
+  `/магазин` and `/профиль` is the warning. At the end the role is taken back, the clan closes
+  (members freed, name free again) or the room is deleted. A renewal keeps the clan and the room.
+- **Paid but not given:** if Discord refuses a paid good for 30 minutes while the buyer is on the
+  server, the KP Coin come back once and the player gets a private message.
+- **Away from the server:** a buyer keeps the purchase and its time runs on; everything returns
+  when they come back. A clan member or room guest who leaves frees the seat.
+- **Settings:** the command `/настройки-магазина` (decision 016; listed only for members who can
+  manage the server) — the channels for media access, the room
+  category, the clan anchor role, switching each good on or off. Picking a channel lets the bot
+  set its rights there (everyone denied, buyers allowed); a channel taken off the list gets its
+  own rules back. A good is switched on only when nothing is missing, and the screen says in plain
+  words what is. All three goods start switched off. Prices are changed in the future admin panel.
 
 ## 3. Game activities and recruitment
 
@@ -152,7 +204,8 @@ Profile: balance, matches played, wins, losses, MVP count, per-game stats, achie
 ## 10. First release (MVP)
 
 **Economy:** KP Coin, balance, history, the shop, buying image access and GIF access, granting
-and revoking the matching Discord permission through roles.
+and revoking the matching Discord permission through roles; the clan role and the personal room;
+the daily bonus and voice-time earnings (decision 013).
 
 **Recruitment:** create an activity, the recruitment channel, join button, counter and limit,
 automatic close, two voice channels, random teams, manual teams, finish, winner, MVP, KP payout,
@@ -160,8 +213,15 @@ match history.
 
 Nothing from §9 is built in the first release; the extension points are left clear and named.
 
+**As built (decisions 013–015):** the owner brought three items forward from §9 into the first
+release — the daily bonus, voice-time earnings, and two personal goods (the clan role and the
+personal room) — and merged image and GIF access into one good. The shop's goods, their 30-day
+expiry, renewal and refund are listed in §2; the new earnings in §1.
+
 ---
 
-Last verified: 2026-09-20 (§3–§5 «as built» notes added with the matches step, decisions 008 and
-009 — checked by the automated suite, not yet walked on the test server; earlier: amounts shown
-as «KP Coin», decision 005; test server first, decision 006).
+Last verified: 2026-09-20 (§1, §2, §10 «as built» notes with the shop and earnings step,
+decisions 014–015 — checked by the automated suite, not yet walked on the test server; §1, §2,
+§10: shop prices, 30-day goods, clan role, personal room, daily bonus, voice time — decision 013;
+§3–§5 walked by the owner on the test server; earlier: «KP Coin», decision 005; test server
+first, decision 006).

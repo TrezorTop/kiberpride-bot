@@ -317,6 +317,7 @@ export function settingsView(s: GuildSettingsView, defaults: RewardAmounts, note
     s.autoMoveToVoice ? '🔊 Переносить в голосовые: да' : '🔇 Переносить в голосовые: нет',
     s.autoMoveToVoice ? ButtonStyle.Success : ButtonStyle.Secondary,
   );
+  // The shop has its own command, /настройки-магазина (decision 016).
   return { embeds: [embed], components: [row(recruit), row(category), row(hours), row(move)] };
 }
 

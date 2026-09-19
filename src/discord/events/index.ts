@@ -36,10 +36,18 @@ export function registerEvents(client: Client, deps: EventDeps): void {
     bind();
   });
 
-  // A player left the server: open recruitments and matches follow decision 004 §5.
+  // A player left the server: open recruitments and matches follow decision 004 §5; their clan
+  // and room seats are freed, their own purchases keep running (decision 014 §3.4, Q17).
   client.on(Events.GuildMemberRemove, (member) => {
     if (member.guild.id !== ctx.guild.id) return;
     ctx.matches.memberLeft(member.id).catch((err: unknown) => ctx.logger.error({ err, userId: member.id }, 'memberLeft failed'));
+    ctx.shop.memberLeft(member.id).catch((err: unknown) => ctx.logger.error({ err, userId: member.id }, 'shop.memberLeft failed'));
+  });
+
+  // A buyer came back: every ACTIVE purchase of theirs converges again (014 §3.4).
+  client.on(Events.GuildMemberAdd, (member) => {
+    if (member.guild.id !== ctx.guild.id) return;
+    ctx.shop.memberJoined(member.id).catch((err: unknown) => ctx.logger.error({ err, userId: member.id }, 'shop.memberJoined failed'));
   });
 
   client.on(Events.InteractionCreate, (interaction) => {

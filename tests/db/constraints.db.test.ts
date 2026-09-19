@@ -115,6 +115,75 @@ describe('ShopGood_price_positive', () => {
   });
 });
 
+// ─── Shop and earnings (decision 014 §8) ───────────────────────────────────
+
+describe('Purchase_periods_positive', () => {
+  it('refuses a purchase with no paid period', async () => {
+    const zero = `INSERT INTO "Purchase" ("userId", "goodId", "pricePaid", "periods") VALUES ('${USER}', $1, 500, 0)`;
+    expect(await refusal(zero, [goodId])).toEqual({ code: CHECK, constraint: 'Purchase_periods_positive' });
+  });
+});
+
+describe('GuildSettings earnings CHECKs', () => {
+  it('defaults to 50 / 10 / 60 and refuses a negative amount in each column', async () => {
+    const row = await pool.query<{ d: number; v: number; c: number }>(
+      `INSERT INTO "GuildSettings" ("id") VALUES (1) RETURNING "dailyBonusAmount" AS d, "voiceKpPerHour" AS v, "voiceDailyCapKp" AS c`,
+    );
+    expect(row.rows[0]).toEqual({ d: 50, v: 10, c: 60 });
+    for (const column of ['dailyBonusAmount', 'voiceKpPerHour', 'voiceDailyCapKp']) {
+      expect(await refusal(`UPDATE "GuildSettings" SET "${column}" = -1 WHERE "id" = 1`)).toEqual({
+        code: CHECK,
+        constraint: `GuildSettings_${column}_nonnegative`,
+      });
+    }
+  });
+});
+
+describe('Clan constraints', () => {
+  const purchase = async () =>
+    (await pool.query<{ id: number }>(`INSERT INTO "Purchase" ("userId", "goodId", "pricePaid") VALUES ('${USER}', $1, 500) RETURNING "id"`, [goodId])).rows[0]!.id;
+  const clan = (purchaseId: number, name: string, extra = '', extraValue = '') =>
+    `INSERT INTO "Clan" ("purchaseId", "ownerId", "name", "color"${extra}) VALUES (${purchaseId}, '${USER}', '${name}', 0${extraValue})`;
+
+  it('Clan_memberCount_range: refuses more than 25 members', async () => {
+    expect(await refusal(clan(await purchase(), 'Волки', ', "memberCount"', ', 26'))).toEqual({ code: CHECK, constraint: 'Clan_memberCount_range' });
+  });
+
+  it('Clan_open_name_key: two open clans cannot share a name in any case; a closed one frees it', async () => {
+    const first = await purchase();
+    await sql(`UPDATE "Purchase" SET "status" = 'EXPIRED' WHERE "id" = ${first}`);
+    await sql(clan(first, 'Волки'));
+    const second = await purchase();
+    expect(await refusal(clan(second, 'ВОЛКИ'))).toEqual({ code: UNIQUE, constraint: 'Clan_open_name_key' });
+    await sql(`UPDATE "Clan" SET "closedAt" = now() WHERE "purchaseId" = ${first}`);
+    await sql(clan(second, 'ВОЛКИ'));
+  });
+});
+
+describe('PersonalRoom CHECKs', () => {
+  const room = async (column: string, value: number) => {
+    const p = (await pool.query<{ id: number }>(`INSERT INTO "Purchase" ("userId", "goodId", "pricePaid") VALUES ('${USER}', $1, 500) RETURNING "id"`, [goodId])).rows[0]!.id;
+    return refusal(`INSERT INTO "PersonalRoom" ("purchaseId", "ownerId", "name", "${column}") VALUES (${p}, '${USER}', 'Комната', ${value})`);
+  };
+
+  it('PersonalRoom_userLimit_range: refuses a limit over 99', async () => {
+    expect(await room('userLimit', 100)).toEqual({ code: CHECK, constraint: 'PersonalRoom_userLimit_range' });
+  });
+
+  it('PersonalRoom_guestCount_range: refuses more than 25 guests', async () => {
+    expect(await room('guestCount', 26)).toEqual({ code: CHECK, constraint: 'PersonalRoom_guestCount_range' });
+  });
+});
+
+describe('VoiceDay CHECKs', () => {
+  it('refuses negative minutes and negative paid hours', async () => {
+    const insert = (minutes: number, hours: number) =>
+      `INSERT INTO "VoiceDay" ("userId", "day", "minutes", "paidHours", "lastTickAt") VALUES ('${USER}', '2026-09-20', ${minutes}, ${hours}, now())`;
+    expect(await refusal(insert(-1, 0))).toEqual({ code: CHECK, constraint: 'VoiceDay_minutes_nonnegative' });
+    expect(await refusal(insert(0, -1))).toEqual({ code: CHECK, constraint: 'VoiceDay_paidHours_nonnegative' });
+  });
+});
+
 describe('Match CHECKs', () => {
   it('accepts a well-formed 5×5 match (the baseline the refusals below differ from)', async () => {
     await sql(insertMatch, [gameId, 5, 10, 10]);

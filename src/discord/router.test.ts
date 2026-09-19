@@ -51,11 +51,12 @@ describe('deferFor (decisions 007 §1, 008 §3)', () => {
     expect(command.deferReply).toHaveBeenCalledOnce();
   });
 
-  it('only the creation button is a modal route', async () => {
+  it('only the buttons that open a form are modal routes (008 §3, 014 §10)', async () => {
     const { buttons } = await import('./buttons/index.js');
     const { selects } = await import('./selects/index.js');
     const { modals } = await import('./modals/index.js');
     const modalRoutes = [...buttons, ...selects, ...modals].filter(([, r]) => r.defer === 'modal').map(([a]) => a);
-    expect(modalRoutes).toEqual(['mnew']);
+    // New game, new clan, clan rename, room rename — each shows a modal as its first response.
+    expect(modalRoutes.sort()).toEqual(['clren', 'mnew', 'rmname', 'shcnew']);
   });
 });
