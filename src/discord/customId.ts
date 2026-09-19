@@ -43,6 +43,13 @@ export function intArg(value: string | undefined): number | null {
   return n <= 2_147_483_647 ? n : null;
 }
 
+/** A row version (0 or more), or null. */
+export function versionArg(value: string | undefined): number | null {
+  if (value === undefined || !/^(0|[1-9]\d{0,9})$/.test(value)) return null;
+  const n = Number(value);
+  return n <= 2_147_483_647 ? n : null;
+}
+
 /** A Discord snowflake, or null. */
 export function snowflakeArg(value: string | undefined): string | null {
   return value !== undefined && /^\d{17,20}$/.test(value) ? value : null;

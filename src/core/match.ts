@@ -79,7 +79,7 @@ export function isFakeUserId(id: string): boolean {
 
 /** The k-th fake player, k ≥ 1. */
 export function fakeUserId(k: number): string {
-  if (!Number.isInteger(k) || k < 1 || k > 9_999_999_999_999_999) throw new Error(`bad fake player number ${k}`);
+  if (!Number.isSafeInteger(k) || k < 1) throw new Error(`bad fake player number ${k}`);
   return `0${String(k).padStart(16, '0')}`;
 }
 

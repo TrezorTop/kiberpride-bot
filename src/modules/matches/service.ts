@@ -25,6 +25,7 @@ import type { LoggingService } from '../logging/service.js';
 import { Capability, type MemberFacts, type PermissionsService } from '../permissions/service.js';
 import { scaleRewards, type RewardsService } from '../rewards/service.js';
 import type { SettingsService } from '../settings/service.js';
+import { DEFAULT_TITLE, MAX_TEAM_SIZE, MAX_TITLE_LENGTH, MIN_TEAM_SIZE } from './constants.js';
 import { payoutPlan, type PayoutLine } from './payout.js';
 import { shuffle } from './shuffle.js';
 import { createSyncer } from './sync.js';
@@ -32,11 +33,7 @@ import { createSyncQueue } from './syncQueue.js';
 import { mayAddTestPlayers } from './testPlayers.js';
 
 export type { MatchSnapshot, WinnerName };
-
-export const DEFAULT_TITLE = 'Собираем игроков на матч';
-export const MAX_TITLE_LENGTH = 80;
-export const MIN_TEAM_SIZE = 2;
-export const MAX_TEAM_SIZE = 10;
+export { DEFAULT_TITLE, MAX_TEAM_SIZE, MAX_TITLE_LENGTH, MIN_TEAM_SIZE };
 
 export interface CreateMatchInput {
   gameId: number;

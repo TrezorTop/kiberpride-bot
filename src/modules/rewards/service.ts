@@ -9,25 +9,26 @@ export type { RewardAmounts };
 export interface RewardsService {
   /** Resolves the amounts for a game now (decision 008 §12). */
   resolveFor(gameId: number): Promise<RewardAmounts>;
+  /** The default amounts (rules with no game), for the settings screen. */
+  defaults(): Promise<RewardAmounts>;
 }
 
 const EVENT_KEYS = { PARTICIPATION: 'participation', WIN: 'win', MVP: 'mvp', DRAW: 'draw' } as const;
 
 export function createRewardsService(db: Db): RewardsService {
-  return {
-    async resolveFor(gameId) {
-      const rules = await db.rewardRule.findMany({
-        where: { OR: [{ gameId: null }, { gameId }] },
-        select: { event: true, gameId: true, amount: true },
-      });
-      const amounts: RewardAmounts = { participation: 0, win: 0, mvp: 0, draw: 0 };
-      // Defaults first, then the game's own rules on top.
-      for (const rule of [...rules].sort((a, b) => (a.gameId === null ? 0 : 1) - (b.gameId === null ? 0 : 1))) {
-        amounts[EVENT_KEYS[rule.event]] = rule.amount;
-      }
-      return amounts;
-    },
+  const resolve = async (gameId: number | null) => {
+    const rules = await db.rewardRule.findMany({
+      where: gameId === null ? { gameId: null } : { OR: [{ gameId: null }, { gameId }] },
+      select: { event: true, gameId: true, amount: true },
+    });
+    const amounts: RewardAmounts = { participation: 0, win: 0, mvp: 0, draw: 0 };
+    // Defaults first, then the game's own rules on top.
+    for (const rule of [...rules].sort((a, b) => (a.gameId === null ? 0 : 1) - (b.gameId === null ? 0 : 1))) {
+      amounts[EVENT_KEYS[rule.event]] = rule.amount;
+    }
+    return amounts;
   };
+  return { resolveFor: resolve, defaults: () => resolve(null) };
 }
 
 /** ⭐ special match: every amount times the factor (decision 009 §1). */
