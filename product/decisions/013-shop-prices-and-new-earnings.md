@@ -1,6 +1,6 @@
 # 013. Shop prices, 30-day access, a daily bonus and voice-time earnings, clan role and personal room as goods
 
-**Status:** accepted. Settles Q1 and extends spec §1, §2 and §10. The owner answered the pending
+**Status:** accepted; §2 and §5 amended by 015 (image and GIF access merged into one good). Settles Q1 and extends spec §1, §2 and §10. The owner answered the pending
 parts the same day: «1б 2а 3а 4б, цифры ок».
 **Date:** 2026-09-20
 **Decided by:** owner (product). The amounts the owner delegated («скоррелируй сам», «придумай

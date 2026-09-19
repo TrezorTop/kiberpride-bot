@@ -56,9 +56,8 @@ the end and takes the grant back at the end; buying again while active extends b
 
 | Good | Price | What it grants |
 |---|---|---|
-| Доступ к изображениям | 3 000 KP Coin | sending images in the channels the admin picked in the settings |
-| Доступ к GIF | 5 000 KP Coin | sending GIFs in the channels the admin picked in the settings |
-| Клановая роль | 15 000 KP Coin | a role the buyer names and colours, and gives to up to 10 clan members |
+| Доступ к картинкам и GIF | 5 000 KP Coin | uploading files and showing GIFs / link previews in the channels the admin picked (one good — Discord cannot tell GIFs from link previews; decision 015) |
+| Клановая роль | 15 000 KP Coin | a role the buyer names and colours, and gives to up to 10 clan members (one clan per player); placed just below the staff roles so the colour shows |
 | Личная комната | 10 000 KP Coin | the buyer's own voice channel: who may enter, its name, a user limit |
 
 ## 3. Game activities and recruitment
