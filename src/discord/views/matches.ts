@@ -33,7 +33,7 @@ import { DEFAULT_TITLE, MAX_TEAM_SIZE, MAX_TITLE_LENGTH, MIN_TEAM_SIZE } from '.
 import { RECRUIT_TIMEOUT_CHOICES, type GuildSettingsView } from '../../modules/settings/service.js';
 import { encodeCustomId } from '../customId.js';
 import { formatSignedKp } from './format.js';
-import { brandEmbed } from './style.js';
+import { brandEmbed, noticeEmbed } from './style.js';
 
 type Row = ActionRowBuilder<MessageActionRowComponentBuilder>;
 export interface View {
@@ -172,21 +172,30 @@ export interface Announcement extends View {
 export function announcementView(m: MatchSnapshot, status: MatchStatusName): Announcement {
   const players = m.participants.filter((p) => p.leftServerAt === null && !isFakeUserId(p.userId)).map((p) => p.userId);
   switch (status) {
-    case 'TEAMS_PENDING':
+    // Decision 012: the words are in the embed; the message text carries ONLY the mentions,
+    // because a mention inside an embed notifies nobody.
+    case 'TEAMS_PENDING': {
+      const ping = isFakeUserId(m.createdById) ? [] : [m.createdById];
       return {
-        content: `${mention(m.createdById)}, состав матча #${m.id} (${m.game.name} ${format(m)}) собран! Распредели команды: «🔧 Распределить команды» под сообщением набора.`,
-        embeds: [],
+        ...pingContent(ping),
+        embeds: [
+          noticeEmbed(
+            `Состав матча #${m.id} (${m.game.name} ${format(m)}) собран! ${mention(m.createdById)}, распредели команды: «🔧 Распределить команды» под сообщением набора.`,
+            '🔧 Пора распределить команды',
+          ),
+        ],
         components: [],
-        pingUserIds: isFakeUserId(m.createdById) ? [] : [m.createdById],
+        pingUserIds: ping,
       };
+    }
     case 'IN_PROGRESS': {
       const lines = (['A', 'B'] as const).map((t) => {
         const channel = t === 'A' ? m.voiceChannelAId : m.voiceChannelBId;
         return `${TEAM_TITLE[t]}: ${team(m, t).map(who).join(', ')}${channel ? ` → <#${channel}>` : ''}`;
       });
       return {
-        content: [`🎮 Матч #${m.id} (${m.game.name} ${format(m)}) начался! Удачной игры 🍀`, ...lines].join('\n'),
-        embeds: [],
+        ...pingContent(players),
+        embeds: [noticeEmbed(lines.join('\n'), `🎮 Матч #${m.id} (${m.game.name} ${format(m)}) начался! Удачной игры 🍀`)],
         components: [],
         pingUserIds: players,
       };
@@ -195,10 +204,14 @@ export function announcementView(m: MatchSnapshot, status: MatchStatusName): Ann
       return { embeds: [resultCard(m)], components: [], pingUserIds: [] };
     case 'CANCELLED': {
       const why = m.endedById === null ? ' — набор закрыт по времени' : '';
-      const who = players.length > 0 ? `\n${players.map(mention).join(' ')}` : '';
       return {
-        content: `🚫 Матч #${m.id} (${m.game.name} ${format(m)}) отменён${why}. KP Coin не начислялись — ждём вас в следующих играх!${who}`,
-        embeds: [],
+        ...pingContent(players),
+        embeds: [
+          noticeEmbed(
+            `${m.game.name} ${format(m)}${why}. KP Coin не начислялись — ждём вас в следующих играх!`,
+            `🚫 Матч #${m.id} отменён`,
+          ),
+        ],
         components: [],
         pingUserIds: players,
       };
@@ -206,6 +219,11 @@ export function announcementView(m: MatchSnapshot, status: MatchStatusName): Ann
     default:
       return { embeds: [], components: [], pingUserIds: [] };
   }
+}
+
+/** The message text of an announcement: only the mentions that must notify, or nothing. */
+function pingContent(userIds: readonly string[]): { content?: string } {
+  return userIds.length > 0 ? { content: userIds.map(mention).join(' ') } : {};
 }
 
 /** The FINISHED card: game, winner, rosters, MVP, paid and withheld amounts (008 §8). */
@@ -497,7 +515,10 @@ export function finishConfirmView(m: MatchSnapshot, winner: WinnerName, mvpUserI
 }
 
 export function finishedView(m: MatchSnapshot): View {
-  return { content: '✅ Матч завершён, награды начислены. Итог опубликован в канале набора.', embeds: [resultCard(m)], components: [] };
+  return {
+    embeds: [noticeEmbed('Награды начислены. Итог опубликован в канале набора.', '✅ Матч завершён'), resultCard(m)],
+    components: [],
+  };
 }
 
 export function cancelConfirmView(m: MatchSnapshot): View {
@@ -508,5 +529,5 @@ export function cancelConfirmView(m: MatchSnapshot): View {
 }
 
 export function cancelledView(m: MatchSnapshot): View {
-  return { content: `Матч #${m.id} отменён. Игроки получат уведомление в канале набора.`, embeds: [], components: [] };
+  return { embeds: [noticeEmbed('Игроки получат уведомление в канале набора.', `🚫 Матч #${m.id} отменён`)], components: [] };
 }

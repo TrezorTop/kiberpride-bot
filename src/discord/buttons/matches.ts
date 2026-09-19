@@ -20,6 +20,7 @@ import {
   winnerFromArg,
   winnerView,
 } from '../views/matches.js';
+import { noticeEmbed } from '../views/style.js';
 
 type Route = ComponentRoute<ButtonInteraction>;
 
@@ -34,7 +35,7 @@ export const joinButton: Route = {
   defer: 'update',
   async run(interaction, args, ctx) {
     const result = await ctx.matches.join(idArg(args[0]), interaction.user.id);
-    await interaction.followUp({ content: joinedText(result), flags: MessageFlags.Ephemeral });
+    await interaction.followUp({ embeds: [noticeEmbed(joinedText(result))], flags: MessageFlags.Ephemeral });
   },
 };
 
@@ -43,7 +44,10 @@ export const leaveButton: Route = {
   defer: 'update',
   async run(interaction, args, ctx) {
     await ctx.matches.leave(idArg(args[0]), interaction.user.id);
-    await interaction.followUp({ content: 'Ты вышел из набора. Возвращайся, если передумаешь 🙂', flags: MessageFlags.Ephemeral });
+    await interaction.followUp({
+      embeds: [noticeEmbed('Ты вышел из набора. Возвращайся, если передумаешь 🙂')],
+      flags: MessageFlags.Ephemeral,
+    });
   },
 };
 

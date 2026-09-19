@@ -19,6 +19,7 @@ import type { AuditLog, GuildGateway, MissingPermissions, VoiceChannelInfo, Voic
 import type { Logger } from '../modules/logging/logger.js';
 import type { GuildBinding } from './router.js';
 import { announcementView, recruitmentView } from './views/matches.js';
+import { noticeEmbed } from './views/style.js';
 
 export const LOG_CHANNEL_NAME = 'kp-логи';
 
@@ -82,7 +83,7 @@ export class DiscordGateway implements GuildGateway, AuditLog {
     if (!this.logChannelId) throw new Error('log channel not ensured yet');
     const channel = await this.client.channels.fetch(this.logChannelId);
     if (!channel?.isSendable()) throw new Error(`log channel ${this.logChannelId} is not sendable`);
-    await channel.send({ content: line, allowedMentions: { parse: [] } });
+    await channel.send({ embeds: [noticeEmbed(line)], allowedMentions: { parse: [] } });
   }
 
   // ─── Matches (decision 008 §12) ───────────────────────────────────────────

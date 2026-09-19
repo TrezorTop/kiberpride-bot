@@ -125,7 +125,21 @@ describe('result card and announcements (008 §8, 009 §3)', () => {
     expect(announcementView(m, 'IN_PROGRESS').pingUserIds).toEqual([p(1).userId, p(3).userId]);
     expect(announcementView(m, 'CANCELLED').pingUserIds).toEqual([p(1).userId, p(3).userId]);
     expect(announcementView({ ...m, winner: 'B' }, 'FINISHED').pingUserIds).toEqual([]);
-    expect(announcementView({ ...m, endedById: null }, 'CANCELLED').content).toContain('набор закрыт по времени');
+    const timedOut = announcementView({ ...m, endedById: null }, 'CANCELLED');
+    // Decision 012: the words live in the embed; the message text is only the pinging mentions.
+    expect(timedOut.embeds[0]?.toJSON().description).toContain('набор закрыт по времени');
+    expect(timedOut.embeds[0]?.toJSON().color).toBe(0x226de6);
+    expect(timedOut.content).toBe(`<@${p(1).userId}> <@${p(3).userId}>`);
+  });
+
+  it('puts every announcement into a brand embed; text carries only mentions (decision 012)', () => {
+    const m = snap({ participants: [p(1, 'A'), p(3, 'B')] });
+    for (const status of ['TEAMS_PENDING', 'IN_PROGRESS', 'FINISHED', 'CANCELLED'] as const) {
+      const view = announcementView({ ...m, winner: 'A' }, status);
+      expect(view.embeds.length).toBeGreaterThan(0);
+      for (const e of view.embeds) expect(e.toJSON().color).toBe(0x226de6);
+      if (view.content !== undefined) expect(view.content).toMatch(/^(<@\d+>)( <@\d+>)*$/);
+    }
   });
 });
 
