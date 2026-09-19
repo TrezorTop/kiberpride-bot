@@ -123,7 +123,7 @@ export class FakeGateway implements GuildGateway {
   }
 
   deleteChannel(id: string): Promise<void> {
-    if (this.channels.delete(id)) this.deleted.push(id); // unknown counts as done
+    if (this.channels.delete(id) || this.rooms.delete(id)) this.deleted.push(id); // unknown counts as done
     return Promise.resolve();
   }
 

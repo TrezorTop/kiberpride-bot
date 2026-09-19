@@ -31,7 +31,11 @@ const SINGLETON_ID = 1;
 export function createSettingsService(db: Db): SettingsService {
   return {
     async get() {
-      return toView(await db.guildSettings.upsert({ where: { id: SINGLETON_ID }, create: { id: SINGLETON_ID }, update: {} }));
+      const row = await db.guildSettings.findUnique({ where: { id: SINGLETON_ID } });
+      if (row) return toView(row);
+      // Prisma's upsert is read-then-write: two first reads at once would both try to create.
+      await db.$executeRaw`INSERT INTO "GuildSettings" ("id") VALUES (${SINGLETON_ID}) ON CONFLICT ("id") DO NOTHING`;
+      return toView(await db.guildSettings.findUniqueOrThrow({ where: { id: SINGLETON_ID } }));
     },
     async update(patch) {
       return toView(
