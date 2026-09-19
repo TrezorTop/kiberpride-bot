@@ -208,6 +208,31 @@ describe('rename, convergence and expiry', () => {
     await expectShopInvariants();
   });
 
+  it('removal, leave and leaving the server racing the clan’s expiry all settle; counts equal rows (017 §3)', async () => {
+    for (let round = 0; round < 6; round++) {
+      const h = await shopHarness();
+      const [a, b, c] = [buyer(20), buyer(21), buyer(22)];
+      await buyClan(h, OWNER, `Гонка ${round}`);
+      await h.clans.addMembers(OWNER, [a, b, c]);
+      await h.shop.idle();
+      h.clock.advance(31 * DAY);
+      const settled = await Promise.allSettled([
+        h.clans.removeMember(OWNER, a),
+        h.shop.expirePass(h.clock.now()),
+        h.clans.leave(b),
+        h.shop.memberLeft(c),
+      ]);
+      await h.shop.idle();
+      // Only a domain refusal may lose the race — never a deadlock or a timeout.
+      for (const code of codes(settled)) expect([null, 'NOT_A_MEMBER', 'NO_CLAN']).toContain(code);
+      expect(settled[1].status).toBe('fulfilled');
+      expect((await testDb().clan.findFirstOrThrow({ where: { ownerId: OWNER } })).closedAt).not.toBeNull();
+      expect(await testDb().clanMember.count()).toBe(0);
+      await expectShopInvariants();
+      await testDb().$executeRawUnsafe('TRUNCATE "KpTransaction", "Purchase", "ShopGood", "User", "Clan", "ClanMember", "PersonalRoom", "RoomGuest" RESTART IDENTITY CASCADE');
+    }
+  });
+
   it('a role that cannot be positioned is created once, and the refund deletes it (017 §1)', async () => {
     const h = await shopHarness({ applyWaitMs: 50 });
     h.gateway.failPlacement = true;

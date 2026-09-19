@@ -10,7 +10,7 @@ import { createKeyedQueue } from '../../core/keyedQueue.js';
 import { isFakeUserId } from '../../core/match.js';
 import type { GuildGateway } from '../../core/ports.js';
 import { Prisma, type Db, type Tx } from '../../db/client.js';
-import { withTx } from '../../db/tx.js';
+import { withTx, withTxRetry } from '../../db/tx.js';
 import { TxKind, type EconomyService } from '../economy/service.js';
 import type { LoggingService } from '../logging/service.js';
 import { mayUseDevTools } from '../permissions/devTools.js';
@@ -210,9 +210,13 @@ export function errorSummary(err: unknown): string {
 
 const days = (n: number) => n * 86_400_000;
 
-/** Closes the clans of these purchases: the name and the members are free again (014 §3.2). */
+/**
+ * Closes the clans of these purchases: the name and the members are free again (014 §3.2).
+ * Lock order (017 §3): the Clan rows, ascending, then their members — as removal and leaving do.
+ */
 export async function closeClans(tx: Tx, purchaseIds: readonly number[], now: Date): Promise<number[]> {
   if (purchaseIds.length === 0) return [];
+  await tx.$queryRaw`SELECT "id" FROM "Clan" WHERE "purchaseId" IN (${Prisma.join(purchaseIds)}) AND "closedAt" IS NULL ORDER BY "id" FOR UPDATE`;
   const closed = await tx.$queryRaw<{ id: number }[]>`
     UPDATE "Clan" SET "closedAt" = ${now}, "memberCount" = 0
     WHERE "purchaseId" IN (${Prisma.join(purchaseIds)}) AND "closedAt" IS NULL
@@ -475,7 +479,7 @@ export function createShopService(deps: ShopDeps): ShopService {
   /** 014 §2: the grant never worked; the money goes back once, then the partial state is cleaned. */
   async function refund(row: PurchaseRow, good: GoodRecord, bound: BoundKind, why: string): Promise<void> {
     const now = clock.now();
-    const amount = await withTx(db, async (tx) => {
+    const amount = await withTxRetry(db, async (tx) => {
       const rows = await tx.$queryRaw<{ pricePaid: number }[]>`
         UPDATE "Purchase" SET "status" = 'REFUNDED', "revokedAt" = ${now}
         WHERE "id" = ${row.id} AND "status" = 'ACTIVE' AND "appliedAt" IS NULL
@@ -628,7 +632,7 @@ export function createShopService(deps: ShopDeps): ShopService {
     },
 
     async expirePass(now) {
-      const expired = await withTx(db, async (tx) => {
+      const expired = await withTxRetry(db, async (tx) => {
         const rows = await tx.$queryRaw<{ id: number; userId: string; goodId: number }[]>`
           UPDATE "Purchase" SET "status" = 'EXPIRED'
           WHERE "status" = 'ACTIVE' AND "expiresAt" <= ${now}
@@ -689,11 +693,19 @@ export function createShopService(deps: ShopDeps): ShopService {
 
     async memberLeft(userId) {
       // 014 §3.4: a member or guest who leaves frees the seat; an owner keeps the clan or room.
-      const freed = await withTx(db, async (tx) => {
+      const freed = await withTxRetry(db, async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
-        const clans = await tx.$queryRaw<{ clanId: number }[]>`DELETE FROM "ClanMember" WHERE "userId" = ${userId} RETURNING "clanId"`;
-        for (const { clanId } of clans) {
+        // Clan before its members (017 §3). With the User row locked nobody can add the player to
+        // another clan meanwhile; expiry may still empty this one, so the DELETE may find nothing.
+        const member = await tx.$queryRaw<{ clanId: number }[]>`SELECT "clanId" FROM "ClanMember" WHERE "userId" = ${userId}`;
+        const clans: { clanId: number }[] = [];
+        for (const { clanId } of member) {
+          await tx.$queryRaw`SELECT "id" FROM "Clan" WHERE "id" = ${clanId} FOR UPDATE`;
+          const deleted = await tx.$queryRaw<{ clanId: number }[]>`
+            DELETE FROM "ClanMember" WHERE "userId" = ${userId} AND "clanId" = ${clanId} RETURNING "clanId"`;
+          if (!deleted[0]) continue;
           await tx.$executeRaw`UPDATE "Clan" SET "memberCount" = "memberCount" - 1 WHERE "id" = ${clanId} AND "memberCount" > 0`;
+          clans.push(deleted[0]);
         }
         const rooms = await tx.$queryRaw<{ roomId: number }[]>`DELETE FROM "RoomGuest" WHERE "userId" = ${userId} RETURNING "roomId"`;
         for (const { roomId } of rooms) {

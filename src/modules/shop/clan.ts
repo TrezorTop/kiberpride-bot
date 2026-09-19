@@ -1,13 +1,13 @@
 // Clans (decisions 014 §3.2, 015 §3): the buyer plus up to `maxMembers`, one clan per person.
-// Every membership change locks the players' User rows first (ascending), then the Clan row: a
-// buy of a clan takes the same User lock, so «add X to my clan» and «X buys a clan» serialise.
+// Lock order (017 §3): the players' User rows (ascending), then the Clan row, then ClanMember rows.
+// A buy of a clan takes the same User lock, so «add X to my clan» and «X buys a clan» serialise.
 // Seats use the counter pattern — a guarded increment plus an insert whose conflict rolls the
 // counter back. Discord follows through the shop's convergence of the owner's key.
 import { systemClock, type Clock } from '../../core/clock.js';
 import { DomainError, isDomainError, type DomainErrorCode } from '../../core/errors.js';
 import { isFakeUserId } from '../../core/match.js';
 import type { GuildGateway } from '../../core/ports.js';
-import { isUniqueViolation, withTx } from '../../db/tx.js';
+import { isUniqueViolation, withTx, withTxRetry } from '../../db/tx.js';
 import type { Db, Tx } from '../../db/client.js';
 import type { LoggingService } from '../logging/service.js';
 import { clanRoleConfig, type ClanRoleConfig } from './kinds/clanRole.js';
@@ -125,8 +125,10 @@ export function createClanService(deps: ClanDeps): ClanService {
   }
 
   async function removeTx(clanId: number, userId: string): Promise<boolean> {
-    return withTx(db, async (tx) => {
+    return withTxRetry(db, async (tx) => {
       await lockUsers(tx, [userId]);
+      // Clan before its members, as expiry and the refund do (017 §3).
+      await tx.$queryRaw`SELECT "id" FROM "Clan" WHERE "id" = ${clanId} FOR UPDATE`;
       const deleted = await tx.$queryRaw<{ id: number }[]>`
         DELETE FROM "ClanMember" WHERE "clanId" = ${clanId} AND "userId" = ${userId} RETURNING "id"`;
       if (!deleted[0]) return false;
