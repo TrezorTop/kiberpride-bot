@@ -41,11 +41,22 @@ serves the one server it is in (see §4); it is set only if the bot is ever in s
 `https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot%20applications.commands&permissions=<PERMISSIONS>`
 
 `<PERMISSIONS>` is what the bot needs: Manage Roles, Manage Channels, Move Members, View
-Channels, Send Messages, Embed Links, Read Message History, Connect = `286346256`.
+Channels, Send Messages, Embed Links, Attach Files, Read Message History, Connect = `286379024`.
+Attach Files was added with the shop (decision 014 §3.1): Discord lets a bot allow or deny in a
+channel only what it holds itself, and «Доступ к картинкам и GIF» sets Attach Files and Embed
+Links there. Before 2026-09-20 the integer was `286346256`.
 `npm run invite-link` prints the whole URL (application id derived from the token in `.env`;
-it prints only the URL, never the token). The bot's role must sit ABOVE the roles it will grant (image
-access, GIF access) in the server's role list — the agent checks this at first start and says
-in plain words if the owner must drag the bot's role up.
+it prints only the URL, never the token).
+
+**Re-invite after a permission change.** A server that invited the bot with the old integer
+keeps the old permissions: the owner opens the new link and confirms the same server (the bot
+is not removed; its managed role simply gains the new permission). Until then the shop settings
+screen shows «боту не хватает прав: прикреплять файлы» for the chosen channels.
+
+**Role order.** The bot's role must sit ABOVE the roles it gives: the media-access role and the
+clan anchor role the admin picks (decision 015 §4) — the clan roles go directly below that
+anchor. The shop settings screen and the startup check say in plain words when the owner must
+drag the bot's role up.
 
 ## 4. The test server (OWNER, ~1 minute)
 
@@ -69,7 +80,8 @@ heartbeat in the log channel confirms.
 
 ---
 
-Last verified: 2026-09-19. §1–§4 were walked with the owner:
+Last verified: 2026-09-20 (§3: Attach Files added, integer `286379024`, re-invite note — the
+test server has not been re-invited yet). 2026-09-19: §1–§4 were walked with the owner:
 - The application was created and the token saved in `.env`.
 - The invite link was opened for the owner, who picked their test server.
 - On first start the bot served that server, registered `/баланс` and `/профиль`, created

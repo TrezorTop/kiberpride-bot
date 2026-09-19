@@ -1,7 +1,19 @@
-# shop — goods and purchases
+# shop — goods, purchases, clans, personal rooms
 
-- **Owns:** `ShopGood` and `Purchase` (a purchase and its grant are one row, decision 003 §5–6).
-- **Interface:** `ShopService` in `service.ts` — `listEnabled`, `buy` (interface only; not built yet).
-- **Extension point:** the kind registry `kinds/index.ts` — a new kind of good is one file plus one line (decision 002 §5).
-- **Invariant:** partial unique index `(userId, goodId) WHERE status = 'ACTIVE'`; KP moves only through `economy.move` with `purchase:<id>`.
+- **Owns:** `ShopGood`, `Purchase` (one row = one chain of grant periods), `Clan`, `ClanMember`, `PersonalRoom`, `RoomGuest` (decisions 014 §1, §3, §8; 015).
+- **Interface:** `ShopService` in `service.ts` — `overview`, `grants`, `quote`, `buy(userId, goodId, expectedPeriods, input)`, `reconcile`, `reconcileAll`, `expirePass`, `warnPass`, `retryPass`, `memberJoined`, `memberLeft`, `adminList`, `configure`, `setEnabled`, `startup`, `devExpireSoon`. `ClanService` (`clan.ts`): `forUser`, `addMembers`, `removeMember`, `leave`, `restyle`. `RoomService` (`room.ts`): `forOwner`, `update`, `addGuests`, `removeGuest`.
+- **Goods (seed, disabled until configured):** `media_access` «Доступ к картинкам и GIF» 5 000 (kind `channel_permission`, AttachFiles + EmbedLinks, one role, one channel list — 015 §2), `clan_role` 15 000, `personal_room` 10 000; all 30 days.
+- **Money (014 §1):** new = one transaction (insert Purchase guarded by the partial unique index on ACTIVE (user, good) → clan/room row → `economy.move(-price, purchase:<id>:1)`); renewal = `UPDATE … WHERE periods = expected AND appliedAt IS NOT NULL` → `purchase:<id>:<period>`; refund = `UPDATE … status='REFUNDED' WHERE ACTIVE AND appliedAt IS NULL` → `refund:<id>`. The confirm button carries `expectedPeriods`, never an amount; the price is read at confirm.
+- **Discord follows by convergence (014 §2):** a keyed coalescing queue per (user, good) (`core/keyedQueue.ts`). A pass revokes every ended row not yet cleaned (a shared resource is skipped while an ACTIVE row exists), then applies the ACTIVE row and sets `appliedAt`. `buy` waits for its pass up to 8 s. A failed apply is stored in `lastApplyError` (first failure → log channel); after 30 minutes unapplied with the buyer present, the pass refunds. `precheck` runs on cached guild data before money moves → `SHOP_UNAVAILABLE` plus a log line.
+- **Extension point:** `kinds/` — a kind is `configSchema`, `settable`, `sharedResource`, `validate`, `precheck`, `apply`, `revoke`, `describe` (`kinds/types.ts`), one file plus one line in `kinds/index.ts`.
+  - `channel_permission`: bot-created role with no permissions; per channel `permissionOverwrites.edit` (never `set`): the bot's own allow first, the role allow, the @everyone deny (`discord/accessOverwrites.ts`). A channel taken off the list gets the role overwrite deleted and @everyone/bot back to inherit.
+  - `clan_role`: role per clan, placed directly below the admin's anchor role (015 §4; without it the good cannot be enabled), named/coloured only at creation and on the owner's rename; members converge to {owner} ∪ `ClanMember`. Name rules in `names.ts`, admin texts in `problems.ts`.
+  - `personal_room`: bot-owned voice channel in the chosen category, locked by default; name, limit and overwrites written in full every pass; the owner never gets Manage Channels.
+- **Invariants:** at most one ACTIVE purchase per (user, good); `Clan.memberCount = count(ClanMember)` (0..25, guarded increment + insert); `ClanMember.userId` unique (one clan per person, Q15); open clan names unique case-insensitively (`Clan_open_name_key`); `PersonalRoom.guestCount = count(RoomGuest)` (0..25); clan membership changes lock User rows first, ascending, then the Clan row.
+- **Leaving the server (014 §3.4, Q17):** a buyer keeps the purchase and its time runs on; `guildMemberAdd` reconciles their keys. A clan member or room guest who leaves is deleted, freeing the seat.
+- **Settings:** `/игры → ⚙️ Настройки → 🛒 Магазин` (SETTINGS_MANAGE, checked in the service): media channels, room category, clan anchor role, enable/disable; enabling runs `validate` and is refused while problems remain.
+- **Logging:** purchases, renewals, refunds, expiries, apply failures, clan and room changes, configuration changes → the log channel.
 - **Depends on:** `economy`, `permissions`, `settings`, `logging`.
+- **Tests:** `tests/db/shop/*.db.test.ts` (real Postgres, concurrent), `kinds/kinds.test.ts`, `names.test.ts`, `discord/accessOverwrites.test.ts`.
+
+Last verified: 2026-09-20
