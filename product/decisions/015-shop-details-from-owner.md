@@ -15,8 +15,8 @@ Decision 014 raised five product questions. The owner answered «1а 2б 3а 4а
    - It grants both AttachFiles and EmbedLinks in the channels the admin picks: one role and
      one channel list.
    - It lasts 30 days.
-   - **The price is 5 000 KP Coin for now**, the higher of the two earlier prices. The owner may
-     change it.
+   - **The price is 5 000 KP Coin**, the higher of the two earlier prices. The owner confirmed it
+     the same day.
 3. **Q15 → the clan as proposed.** The buyer plus up to 10 members. A player can be in one clan
    only. The buyer adds members directly, and a member can leave at any time.
 4. **Q16 → the clan colour is visible.** The clan role is placed just below an anchor role that
