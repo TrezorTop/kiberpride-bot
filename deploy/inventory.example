@@ -1,0 +1,6 @@
+# Copy to deploy/inventory.local (ignored by git) and fill in. Never commit the real one.
+HOST=
+USER=kiber
+KEY=~/.ssh/kiberpride-bot
+# Where the provider's web console / rescue mode is (the owner's way back in, rule server-safety §2)
+CONSOLE_URL=

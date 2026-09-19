@@ -1,0 +1,21 @@
+# secrets and local-only state (rule no-secrets-in-git)
+.env
+.env.*
+!.env.example
+deploy/inventory.local
+backups-local/
+*.dump
+*.pem
+id_ed25519*
+id_rsa*
+
+# toolchain
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+
+# Claude Code local overrides (the shared settings.json stays in git)
+.claude/settings.local.json

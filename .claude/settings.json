@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/preflight.mjs 2>/dev/null || echo 'Node.js не установлен: первый шаг — runbooks/workstation-setup.md (или /init-project)'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/gate.mjs shell 2>/dev/null || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/gate.mjs spawn 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
