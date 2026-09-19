@@ -68,7 +68,7 @@ function selfTest() {
     ['shell', { command: 'cat > x.ts <<EOF\nhi\nEOF' }, true],
     ['shell', { command: 'sed -n "1,20p" rules/x.md' }, false],
     ['shell', { command: 'grep -rn foo src/' }, false],
-    ['shell', { command: "ssh kiberpride 'cat > /opt/kiberpride-bot/.env' < .env.server" }, false],
+    ['shell', { command: "ssh kiberpride 'cat > /opt/ruslan-bot/.env' < .env.server" }, false],
     ['shell', { command: 'sed -i "s/a/b/" x.md # SHELL-EDIT: bulk rename, dry-run checked' }, false],
     ['shell', { command: 'git add .env' }, true],
     ['shell', { command: 'git add .env.example' }, false],

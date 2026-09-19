@@ -11,7 +11,7 @@ committed, never pasted into chat, never printed in a log or a doc. Secrets live
 its value. The repository is public: assume everything in it is read by strangers.
 
 1. **Locations, not values.** `.env` on the workstation (in `.gitignore` from the first commit),
-   `/opt/kiberpride-bot/.env` on the server, the SSH private key in the owner's user profile. A
+   `/opt/ruslan-bot/.env` on the server, the SSH private key in the owner's user profile. A
    doc says «the token is in `.env`», never the token. `.env.example` carries the variable NAMES
    with empty or fake values.
 2. **The owner never pastes a secret into chat.** When a secret must reach the agent (the Discord

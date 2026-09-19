@@ -1,5 +1,11 @@
 # Server setup — choosing, buying, keying, hardening one small VPS
 
+> **This runbook was NOT used.** The owner already had a server, and the bot was put on it at
+> `/opt/ruslan-bot` next to their other services (decision 019). §4's hardening is deliberately
+> not applied there: the host carries the owner's Python bot, a VPN and two more units, and a
+> mistake in sshd or the firewall would take those down too. What was actually done is in
+> `runbooks/deploy.md`; keep this file for the day a server of our own is bought.
+
 Constraints from decision 001 §5: **outside Russia** (Discord is blocked inside), **paid in
 rubles**, SSH key set at creation. Everything after the purchase is the agent over SSH.
 
