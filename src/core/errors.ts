@@ -19,6 +19,22 @@ export const DOMAIN_ERROR_CODES = [
   'ROSTER_LOCKED',
   'MATCH_STARTED',
   'SPECIAL_ONLY_RECRUITING',
+  // Shop and earnings (decision 014)
+  'SHOP_UNAVAILABLE',
+  'GOOD_DISABLED',
+  'ALREADY_OWNED',
+  'ALREADY_CLAIMED',
+  'DAILY_OFF',
+  'NAME_INVALID',
+  'NAME_TAKEN',
+  'CLAN_FULL',
+  'IN_OTHER_CLAN',
+  'NOT_OWNER',
+  'NO_CLAN',
+  'NO_ROOM',
+  'ROOM_FULL',
+  'INVALID_TARGET',
+  'NOT_A_MEMBER',
 ] as const;
 
 export type DomainErrorCode = (typeof DOMAIN_ERROR_CODES)[number];
@@ -26,6 +42,10 @@ export type DomainErrorCode = (typeof DOMAIN_ERROR_CODES)[number];
 /** Facts the player-facing text may show, e.g. the permissions the bot lacks. Never secrets. */
 export interface DomainErrorParams {
   missing?: readonly string[];
+  /** A moment the text names, e.g. when the next daily bonus opens. */
+  at?: Date;
+  /** Why a name was refused (clan and room names), a NameProblem code. */
+  reason?: string;
 }
 
 export class DomainError extends Error {

@@ -6,7 +6,6 @@ export const STALE_COMPONENT = 'Эта кнопка устарела — отк�
 export const UNEXPECTED_ERROR = 'Что-то пошло не так. Попробуй ещё раз через минуту — администраторы уже в курсе.';
 export const WRONG_GUILD = 'Я работаю только на сервере KiberPride 🙂';
 export const NOT_READY = 'Я ещё просыпаюсь — попробуй через минуту.';
-export const HISTORY_SOON = 'Полная история скоро появится 🙂 Пока последние операции видны в /профиль.';
 
 const DOMAIN_ERROR_TEXT: Record<DomainErrorCode, string> = {
   INSUFFICIENT_FUNDS: 'Не хватает KP Coin 😔 Проверь баланс через /баланс — KP Coin можно заработать в матчах.',
@@ -26,6 +25,31 @@ const DOMAIN_ERROR_TEXT: Record<DomainErrorCode, string> = {
   ROSTER_LOCKED: 'Состав уже собран — если не можешь играть, напиши организатору 🙏',
   MATCH_STARTED: 'Матч уже начался — состав больше не меняется.',
   SPECIAL_ONLY_RECRUITING: 'Сделать матч особым можно только пока идёт набор.',
+  SHOP_UNAVAILABLE: 'Этот товар сейчас не может быть выдан — администраторы уже в курсе. KP Coin не списаны, попробуй чуть позже 🙏',
+  GOOD_DISABLED: 'Этот товар сейчас не продаётся. Загляни в /магазин — там всё, что доступно.',
+  ALREADY_OWNED: 'Это у тебя уже есть 👍 Срок видно в /магазин и /профиль.',
+  ALREADY_CLAIMED: 'Сегодняшний бонус уже у тебя 🎁 Приходи завтра!',
+  DAILY_OFF: 'Ежедневный бонус сейчас выключен.',
+  NAME_INVALID: 'Такое название не подойдёт. Придумай другое.',
+  NAME_TAKEN: 'Клан с таким названием уже есть — придумай другое 🙂',
+  CLAN_FULL: 'В клане больше нет мест.',
+  IN_OTHER_CLAN: 'Этот игрок уже в другом клане — в клане можно состоять только в одном.',
+  NOT_OWNER: 'Это может делать только владелец.',
+  NO_CLAN: 'У тебя нет клана. Клан можно купить в /магазин 🛡️',
+  NO_ROOM: 'У тебя нет личной комнаты. Её можно купить в /магазин 🏠',
+  ROOM_FULL: 'В комнату больше нельзя добавить гостей.',
+  INVALID_TARGET: 'Себя и ботов добавить нельзя 🙂 Выбери других игроков.',
+  NOT_A_MEMBER: 'Этого игрока там уже нет — открой панель заново.',
+};
+
+/** Why a clan or room name was refused (NameProblem, modules/shop/names.ts). */
+const NAME_PROBLEM_TEXT: Record<string, string> = {
+  length: 'Название должно быть от 2 до 32 символов.',
+  chars: 'В названии можно только буквы, цифры, эмодзи, пробел и - _ . ! ?',
+  link: 'Ссылки в названии нельзя.',
+  reserved: 'Так назвать нельзя — это слово занято Discord.',
+  role_taken: 'На сервере уже есть роль с таким названием.',
+  forbidden: 'Название похоже на роль персонала или сервера — придумай другое.',
 };
 
 /** Discord permission flag names the bot may lack → what the admin sees (decision 008 §2). */
@@ -58,6 +82,12 @@ export function missingPermissionsText(missing: readonly string[]): string {
 export function domainErrorText(err: { code: DomainErrorCode; params?: DomainErrorParams }): string {
   if (err.code === 'BOT_MISSING_PERMISSIONS' && err.params?.missing?.length) {
     return `Мне не хватает прав — ${missingPermissionsText(err.params.missing)}. Попроси администратора выдать их боту и попробуй ещё раз.`;
+  }
+  if (err.code === 'ALREADY_CLAIMED' && err.params?.at) {
+    return `Сегодняшний бонус уже у тебя 🎁 Следующий — <t:${Math.floor(err.params.at.getTime() / 1000)}:R>.`;
+  }
+  if (err.code === 'NAME_INVALID' && err.params?.reason) {
+    return `${NAME_PROBLEM_TEXT[err.params.reason] ?? DOMAIN_ERROR_TEXT.NAME_INVALID} Попробуй ещё раз.`;
   }
   return DOMAIN_ERROR_TEXT[err.code];
 }

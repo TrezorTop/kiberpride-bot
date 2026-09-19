@@ -39,11 +39,15 @@ enum TxKind {
   PURCHASE
   ADMIN_ADJUST
   REFUND
+  DAILY_BONUS // decision 014 §5
+  VOICE_TIME // decision 014 §6
 }
 
 /// The ledger: append-only, one row per economic fact, `reference` makes it idempotent.
-/// Reference formats (003 §3): match:<id>:participation:<userId>, match:<id>:win:<userId>,
-/// match:<id>:mvp:<userId>, purchase:<purchaseId>, admin:<nonce>.
+/// Reference formats (003 §3, 014 §1, §5, §6): match:<id>:participation:<userId>,
+/// match:<id>:win:<userId>, match:<id>:mvp:<userId>, purchase:<purchaseId>:<period>,
+/// refund:<purchaseId>, daily:<userId>:<moscowDay>, voice:<userId>:<moscowDay>:<hour>,
+/// admin:<nonce>, dev:<nonce>.
 /// Raw SQL: CHECK "KpTransaction_amount_nonzero" (amount <> 0).
 model KpTransaction {
   id           Int      @id @default(autoincrement())
@@ -68,7 +72,8 @@ model KpTransaction {
 // ─── Shop ───────────────────────────────────────────────────────────────────
 
 /// A good. `kind` is validated against the kind registry (src/modules/shop/kinds), `config`
-/// by that kind's schema (002 §5) — deliberately not an enum.
+/// by that kind's schema (014 §3) — deliberately not an enum. `validityDays` null = forever,
+/// and such a good has no renewal (014 §1).
 /// Raw SQL: CHECK "ShopGood_price_positive" (price > 0).
 model ShopGood {
   id           Int      @id @default(autoincrement())
@@ -91,32 +96,128 @@ enum PurchaseStatus {
   ACTIVE
   EXPIRED
   REVOKED
+  REFUNDED // apply failed for good, the money went back (decision 014 §2)
 }
 
-/// A purchase and its grant are one row (003 §6).
+/// One row is one chain of grant periods: a renewal extends it (decision 014 §1, amends 003 §6).
 /// Raw SQL: partial UNIQUE INDEX "Purchase_one_active_per_user_good"
 ///          ON (userId, goodId) WHERE status = 'ACTIVE' — a double click cannot buy twice.
+/// Raw SQL: CHECK "Purchase_periods_positive" (periods >= 1).
 model Purchase {
-  id          Int            @id @default(autoincrement())
-  userId      String
-  goodId      Int
-  pricePaid   Int
-  status      PurchaseStatus @default(ACTIVE)
-  grantedAt   DateTime       @default(now()) @db.Timestamptz(3)
-  expiresAt   DateTime?      @db.Timestamptz(3)
-  appliedAt   DateTime?      @db.Timestamptz(3) // null = the Discord role is not confirmed yet
-  revokedAt   DateTime?      @db.Timestamptz(3)
-  revokedById String?
+  id             Int            @id @default(autoincrement())
+  userId         String
+  goodId         Int
+  /// The running total of every period paid.
+  pricePaid      Int
+  status         PurchaseStatus @default(ACTIVE)
+  /// How many periods were paid; the renew button carries it as the expected value.
+  periods        Int            @default(1)
+  grantedAt      DateTime       @default(now()) @db.Timestamptz(3)
+  expiresAt      DateTime?      @db.Timestamptz(3)
+  appliedAt      DateTime?      @db.Timestamptz(3) // null = the Discord grant is not confirmed yet
+  revokedAt      DateTime?      @db.Timestamptz(3)
+  revokedById    String?
+  /// The one warning a day before the end was claimed (sent or lost, never twice).
+  warnedAt       DateTime?      @db.Timestamptz(3)
+  /// A non-ACTIVE row whose Discord grant has been taken back.
+  cleanedAt      DateTime?      @db.Timestamptz(3)
+  /// The last Discord failure applying this grant; the first one goes to the log channel.
+  lastApplyError String?
 
   user         User            @relation(fields: [userId], references: [id])
   good         ShopGood        @relation(fields: [goodId], references: [id])
   transactions KpTransaction[]
+  clan         Clan?
+  room         PersonalRoom?
+
+  @@index([status, expiresAt])
+}
+
+/// A clan bought as a `clan_role` good (decision 014 §3.2): the buyer plus up to maxMembers.
+/// Raw SQL: CHECK "Clan_memberCount_range" (memberCount BETWEEN 0 AND 25).
+/// Raw SQL: partial UNIQUE INDEX "Clan_open_name_key" ON (lower(name)) WHERE closedAt IS NULL.
+model Clan {
+  id          Int       @id @default(autoincrement())
+  purchaseId  Int       @unique
+  ownerId     String
+  name        String
+  /// 0xRRGGBB from the good's palette, never typed by the player.
+  color       Int
+  roleId      String?
+  memberCount Int       @default(0)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  /// Set when the purchase expires or is refunded; frees the name and the members.
+  closedAt    DateTime? @db.Timestamptz(3)
+
+  purchase Purchase     @relation(fields: [purchaseId], references: [id])
+  members  ClanMember[]
+}
+
+/// One clan per person (Q15): `userId` is unique across all clans.
+model ClanMember {
+  id      Int      @id @default(autoincrement())
+  clanId  Int
+  userId  String   @unique
+  addedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  clan Clan @relation(fields: [clanId], references: [id], onDelete: Cascade)
+
+  @@unique([clanId, userId])
+}
+
+/// A voice channel bought as a `personal_room` good (decision 014 §3.3); controlled through the bot.
+/// Raw SQL: CHECK "PersonalRoom_userLimit_range" (userLimit BETWEEN 0 AND 99),
+///          CHECK "PersonalRoom_guestCount_range" (guestCount BETWEEN 0 AND 25).
+model PersonalRoom {
+  id         Int      @id @default(autoincrement())
+  purchaseId Int      @unique
+  ownerId    String
+  channelId  String?
+  name       String
+  /// 0 = no limit.
+  userLimit  Int      @default(0)
+  locked     Boolean  @default(true)
+  guestCount Int      @default(0)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  purchase Purchase    @relation(fields: [purchaseId], references: [id])
+  guests   RoomGuest[]
+}
+
+model RoomGuest {
+  id      Int      @id @default(autoincrement())
+  roomId  Int
+  userId  String
+  addedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  room PersonalRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+}
+
+// ─── Earnings ───────────────────────────────────────────────────────────────
+
+/// Voice minutes of one player on one Moscow day (decision 014 §6); no session table.
+/// Raw SQL: CHECK "VoiceDay_minutes_nonnegative" (minutes >= 0),
+///          CHECK "VoiceDay_paidHours_nonnegative" (paidHours >= 0).
+model VoiceDay {
+  userId     String
+  /// Moscow calendar day, YYYY-MM-DD (core/clock.ts moscowDay).
+  day        String
+  minutes    Int      @default(0)
+  paidHours  Int      @default(0)
+  /// The tick minute last credited; an overlapping tick of the same minute credits nothing.
+  lastTickAt DateTime @db.Timestamptz(3)
+
+  @@id([userId, day])
 }
 
 // ─── Settings ───────────────────────────────────────────────────────────────
 
 /// Singleton row, id = 1.
-/// Raw SQL: CHECK "GuildSettings_recruitTimeoutHours_nonnegative" (recruitTimeoutHours >= 0).
+/// Raw SQL: CHECK "GuildSettings_recruitTimeoutHours_nonnegative" (recruitTimeoutHours >= 0),
+///          CHECK "GuildSettings_dailyBonusAmount_nonnegative", "GuildSettings_voiceKpPerHour_nonnegative",
+///          "GuildSettings_voiceDailyCapKp_nonnegative" (each >= 0; decision 014 §8).
 model GuildSettings {
   id                      Int      @id @default(1)
   logChannelId            String?
@@ -126,6 +227,11 @@ model GuildSettings {
   autoMoveToVoice         Boolean  @default(false)
   /// An unfilled recruitment is cancelled after this many hours; 0 = never (decision 009 §5).
   recruitTimeoutHours     Int      @default(3)
+  /// KP of the daily bonus; 0 = off (decisions 013 §3, 014 §5).
+  dailyBonusAmount        Int      @default(50)
+  /// KP per full hour in voice, and the most voice time pays in one Moscow day (013 §4).
+  voiceKpPerHour          Int      @default(10)
+  voiceDailyCapKp         Int      @default(60)
   updatedAt               DateTime @default(now()) @updatedAt @db.Timestamptz(3)
 }
 

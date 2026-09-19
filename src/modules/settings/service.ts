@@ -9,6 +9,11 @@ export interface GuildSettingsView {
   autoMoveToVoice: boolean;
   /** An unfilled recruitment is cancelled after this many hours; 0 = never (decision 009 §5). */
   recruitTimeoutHours: number;
+  /** KP of the daily bonus; 0 = off (decision 014 §5). */
+  dailyBonusAmount: number;
+  /** KP per full hour in voice and the most it pays in one Moscow day (decision 014 §6). */
+  voiceKpPerHour: number;
+  voiceDailyCapKp: number;
 }
 
 export type GuildSettingsPatch = Partial<GuildSettingsView>;
@@ -48,5 +53,8 @@ function toView(row: GuildSettingsView): GuildSettingsView {
     defaultVoiceCategoryId: row.defaultVoiceCategoryId,
     autoMoveToVoice: row.autoMoveToVoice,
     recruitTimeoutHours: row.recruitTimeoutHours,
+    dailyBonusAmount: row.dailyBonusAmount,
+    voiceKpPerHour: row.voiceKpPerHour,
+    voiceDailyCapKp: row.voiceDailyCapKp,
   };
 }

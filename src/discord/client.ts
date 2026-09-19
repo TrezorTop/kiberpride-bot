@@ -72,6 +72,15 @@ export async function bindGuild(client: Client, configured: string | undefined, 
   ctx.logger.info({ guildId: guild.id, guildName: guild.name, fromEnv: Boolean(configured) }, 'serving guild');
   await registerCommands(guild, ctx);
 
+  // The full member cache: clan convergence compares a role's members with the database, and
+  // voice time reads who is a bot (decision 014 §3.2, §6). Refreshed by the GuildMembers intent.
+  try {
+    const members = await guild.members.fetch();
+    ctx.logger.info({ members: members.size }, 'member cache filled');
+  } catch (err) {
+    ctx.logger.error({ err }, 'could not fetch the member list');
+  }
+
   try {
     await deps.logging.ensureLogChannel();
   } catch (err) {

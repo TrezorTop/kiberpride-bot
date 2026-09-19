@@ -15,15 +15,15 @@ describe('invite', () => {
     expect(clientIdFromToken('not-a-token')).toBeNull();
   });
 
-  it('asks for exactly the eight permissions of the runbook', () => {
+  it('asks for exactly the nine permissions of the runbook', () => {
     // Manage Roles, Manage Channels, Move Members, View Channels, Send Messages, Embed Links,
-    // Read Message History, Connect.
-    expect(INVITE_PERMISSIONS).toBe(286_346_256n);
+    // Attach Files (decision 014 §3.1), Read Message History, Connect.
+    expect(INVITE_PERMISSIONS).toBe(286_379_024n);
   });
 
   it('builds the invite URL with both scopes', () => {
     expect(inviteUrl(APP_ID)).toBe(
-      `https://discord.com/oauth2/authorize?client_id=${APP_ID}&scope=bot%20applications.commands&permissions=286346256`,
+      `https://discord.com/oauth2/authorize?client_id=${APP_ID}&scope=bot%20applications.commands&permissions=286379024`,
     );
   });
 });

@@ -11,8 +11,12 @@ import {
   type AnySelectMenuInteraction,
 } from 'discord.js';
 import { isDomainError } from '../core/errors.js';
+import type { EarningsService } from '../modules/earnings/service.js';
 import type { EconomyService } from '../modules/economy/service.js';
 import type { GamesService } from '../modules/games/service.js';
+import type { ClanService } from '../modules/shop/clan.js';
+import type { RoomService } from '../modules/shop/room.js';
+import type { ShopService } from '../modules/shop/service.js';
 import type { Logger } from '../modules/logging/logger.js';
 import type { LoggingService } from '../modules/logging/service.js';
 import type { MatchesService } from '../modules/matches/service.js';
@@ -36,12 +40,16 @@ export interface AppContext {
   games: GamesService;
   rewards: RewardsService;
   matches: MatchesService;
+  shop: ShopService;
+  clans: ClanService;
+  rooms: RoomService;
+  earnings: EarningsService;
   /** Settings screen checks the bot's permissions through it (decision 008 §2). */
   gateway: GuildGateway;
   logging: LoggingService;
   logger: Logger;
   guild: GuildBinding;
-  /** `production` hides the test-players button (decision 008 §10). */
+  /** `production` hides the owner test tools (decisions 008 §10, 014 §12). */
   nodeEnv: string;
 }
 

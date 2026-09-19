@@ -9,6 +9,8 @@ export const INVITE_PERMISSIONS: bigint =
   PermissionFlagsBits.ViewChannel |
   PermissionFlagsBits.SendMessages |
   PermissionFlagsBits.EmbedLinks |
+  // Decision 014 §3.1: a bot can allow or deny in a channel only what it holds itself.
+  PermissionFlagsBits.AttachFiles |
   PermissionFlagsBits.ReadMessageHistory |
   PermissionFlagsBits.Connect;
 

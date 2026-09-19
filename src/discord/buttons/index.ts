@@ -2,7 +2,7 @@
 import type { ButtonInteraction } from 'discord.js';
 import type { ComponentRoute } from '../router.js';
 import { autoMoveButton, newGameButton, settingsButton } from './games.js';
-import { historyButton } from './history.js';
+import { historyButton, historyPageButton } from './history.js';
 import {
   cancelButton,
   confirmCancelButton,
@@ -16,9 +16,27 @@ import {
   testPlayersButton,
   winnerButton,
 } from './matches.js';
+import {
+  buyButton,
+  clanButton,
+  clanLeaveButton,
+  clanRenameButton,
+  dailyButton,
+  devExpireButton,
+  devTopUpButton,
+  enableGoodButton,
+  myPurchasesButton,
+  newClanButton,
+  roomButton,
+  roomLockButton,
+  roomRenameButton,
+  settingsBackButton,
+  shopSettingsButton,
+} from './shop.js';
 
 export const buttons: ReadonlyMap<string, ComponentRoute<ButtonInteraction>> = new Map([
   ['hist', historyButton],
+  ['hpg', historyPageButton],
   ['mnew', newGameButton],
   ['mset', settingsButton],
   ['smove', autoMoveButton],
@@ -33,4 +51,20 @@ export const buttons: ReadonlyMap<string, ComponentRoute<ButtonInteraction>> = n
   ['mtok', confirmTeamsButton],
   ['mspc', specialButton],
   ['mtest', testPlayersButton],
+  // Shop and earnings (decision 014 §10, §12)
+  ['shbuy', buyButton],
+  ['shcnew', newClanButton],
+  ['clan', clanButton],
+  ['clren', clanRenameButton],
+  ['clleave', clanLeaveButton],
+  ['room', roomButton],
+  ['rmname', roomRenameButton],
+  ['rmlock', roomLockButton],
+  ['mybuy', myPurchasesButton],
+  ['dexp', devExpireButton],
+  ['dtop', devTopUpButton],
+  ['daily', dailyButton],
+  ['sshop', shopSettingsButton],
+  ['ssback', settingsBackButton],
+  ['shen', enableGoodButton],
 ]);

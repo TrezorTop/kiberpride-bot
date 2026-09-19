@@ -15,8 +15,11 @@ import { clientIdFromToken, inviteUrl } from './discord/invite.js';
 import { modals } from './discord/modals/index.js';
 import type { AppContext, GuildBinding } from './discord/router.js';
 import { selects } from './discord/selects/index.js';
+import { startGrantsJob } from './jobs/grants.js';
 import { startRecruitTimeoutJob } from './jobs/recruitTimeout.js';
 import { startSyncRetryJob } from './jobs/syncRetry.js';
+import { startVoiceJob } from './jobs/voice.js';
+import { createEarningsService } from './modules/earnings/service.js';
 import { createEconomyService } from './modules/economy/service.js';
 import { createGamesService } from './modules/games/service.js';
 import { createLogger } from './modules/logging/logger.js';
@@ -25,6 +28,9 @@ import { createMatchesService } from './modules/matches/service.js';
 import { createPermissionsService, dbCapabilitySource, dbRoleSource } from './modules/permissions/service.js';
 import { createRewardsService } from './modules/rewards/service.js';
 import { createSettingsService } from './modules/settings/service.js';
+import { createClanService } from './modules/shop/clan.js';
+import { createRoomService } from './modules/shop/room.js';
+import { createShopService } from './modules/shop/service.js';
 
 /** Container health check target (deploy/docker-compose.yml); bound to localhost only. */
 const HEALTH_PORT = 8080;
@@ -61,6 +67,10 @@ async function main(): Promise<void> {
     nodeEnv: env.NODE_ENV,
     clock: systemClock,
   });
+  const shop = createShopService({ db, economy, permissions, logging, gateway, nodeEnv: env.NODE_ENV, clock: systemClock });
+  const clans = createClanService({ db, shop, logging, gateway, clock: systemClock });
+  const rooms = createRoomService({ db, shop, logging, gateway, clock: systemClock });
+  const earnings = createEarningsService({ db, economy, settings, logging, clock: systemClock });
   const ctx: AppContext = {
     economy,
     permissions,
@@ -68,6 +78,10 @@ async function main(): Promise<void> {
     games,
     rewards,
     matches,
+    shop,
+    clans,
+    rooms,
+    earnings,
     gateway,
     logging,
     logger,
@@ -118,6 +132,23 @@ async function main(): Promise<void> {
     isReady: () => binding.id !== null && isConnected(client),
   });
 
+  // Decision 014 §4: warnings, expiry, retries and refunds of shop grants.
+  const stopGrants = startGrantsJob({
+    shop,
+    logging,
+    clock: systemClock,
+    isReady: () => binding.id !== null && isConnected(client),
+  });
+
+  // Decision 014 §6: one minute of voice time for every eligible player.
+  const stopVoice = startVoiceJob({
+    gateway,
+    earnings,
+    logging,
+    clock: systemClock,
+    isReady: () => binding.id !== null && isConnected(client),
+  });
+
   const health = startHealthServer(async () => {
     if (!isConnected(client)) return false;
     await db.$queryRaw`SELECT 1`;
@@ -129,6 +160,8 @@ async function main(): Promise<void> {
     stopWatchdog();
     stopRecruitTimeout();
     stopSyncRetry();
+    stopGrants();
+    stopVoice();
     health.close();
     void client
       .destroy()

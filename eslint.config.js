@@ -1,6 +1,7 @@
 // Lint, plus the dependency direction of decision 002 §2 enforced per folder:
 //   discord → modules → core, db      (modules never import discord.js)
-//   matches → rewards → economy, shop → economy, * → permissions, settings, logging; no cycles.
+//   matches → rewards → economy, shop → economy, earnings → economy,
+//   * → permissions, settings, logging; no cycles.
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
 import globals from 'globals';
@@ -24,6 +25,7 @@ const MODULE_EDGES = {
   games: ['permissions', 'settings', 'logging'],
   rewards: ['economy', 'games', 'permissions', 'settings', 'logging'],
   shop: ['economy', 'permissions', 'settings', 'logging'],
+  earnings: ['economy', 'permissions', 'settings', 'logging'],
   matches: ['rewards', 'economy', 'games', 'permissions', 'settings', 'logging'],
 };
 const MODULES = Object.keys(MODULE_EDGES);

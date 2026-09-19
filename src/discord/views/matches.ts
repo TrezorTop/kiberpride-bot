@@ -317,7 +317,8 @@ export function settingsView(s: GuildSettingsView, defaults: RewardAmounts, note
     s.autoMoveToVoice ? '🔊 Переносить в голосовые: да' : '🔇 Переносить в голосовые: нет',
     s.autoMoveToVoice ? ButtonStyle.Success : ButtonStyle.Secondary,
   );
-  return { embeds: [embed], components: [row(recruit), row(category), row(hours), row(move)] };
+  const shop = button(encodeCustomId('sshop'), '🛒 Магазин', ButtonStyle.Primary);
+  return { embeds: [embed], components: [row(recruit), row(category), row(hours), row(move, shop)] };
 }
 
 function voiceCategorySelect(current: string | null, customId: string): ChannelSelectMenuBuilder {
