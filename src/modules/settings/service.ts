@@ -7,9 +7,14 @@ export interface GuildSettingsView {
   defaultRecruitChannelId: string | null;
   defaultVoiceCategoryId: string | null;
   autoMoveToVoice: boolean;
+  /** An unfilled recruitment is cancelled after this many hours; 0 = never (decision 009 §5). */
+  recruitTimeoutHours: number;
 }
 
 export type GuildSettingsPatch = Partial<GuildSettingsView>;
+
+/** The choices the `/игры` settings screen offers for the recruit timeout (decision 009 §5). */
+export const RECRUIT_TIMEOUT_CHOICES = [0, 1, 2, 3, 6, 12, 24] as const;
 
 export interface SettingsService {
   get(): Promise<GuildSettingsView>;
@@ -42,5 +47,6 @@ function toView(row: GuildSettingsView): GuildSettingsView {
     defaultRecruitChannelId: row.defaultRecruitChannelId,
     defaultVoiceCategoryId: row.defaultVoiceCategoryId,
     autoMoveToVoice: row.autoMoveToVoice,
+    recruitTimeoutHours: row.recruitTimeoutHours,
   };
 }

@@ -32,6 +32,42 @@ describe('permissions', () => {
     expect(await service.can(member(), 'ACTIVITY_CREATE')).toBe(false);
   });
 
+  describe('canManageMatch', () => {
+    const creator = '100000000000000001';
+    const manager = '200000000000000009';
+
+    it('lets the creator manage their own match with no role at all', async () => {
+      const { service } = serviceWith({});
+      expect(await service.canManageMatch(member({ userId: creator }), { createdById: creator })).toBe(true);
+    });
+
+    it('lets a MATCH_MANAGE_ANY holder manage anyone’s match', async () => {
+      const { service } = serviceWith({ [manager]: ['MATCH_MANAGE_ANY'] });
+      const m = member({ userId: '100000000000000002', roleIds: [manager] });
+      expect(await service.canManageMatch(m, { createdById: creator })).toBe(true);
+    });
+
+    it('refuses another organiser who only may create activities', async () => {
+      const { service } = serviceWith({ [manager]: ['ACTIVITY_CREATE'] });
+      const m = member({ userId: '100000000000000002', roleIds: [manager] });
+      expect(await service.canManageMatch(m, { createdById: creator })).toBe(false);
+    });
+
+    it('lets the guild owner and administrators manage any match', async () => {
+      const { service } = serviceWith({});
+      expect(await service.canManageMatch(member({ userId: '9'.repeat(18), isGuildOwner: true }), { createdById: creator })).toBe(true);
+      expect(await service.canManageMatch(member({ userId: '9'.repeat(18), isAdministrator: true }), { createdById: creator })).toBe(true);
+    });
+  });
+
+  it('canAny passes when any one capability is held', async () => {
+    const organiser = '200000000000000001';
+    const { service } = serviceWith({ [organiser]: ['SETTINGS_MANAGE'] });
+    const m = member({ roleIds: [organiser] });
+    expect(await service.canAny(m, ['ACTIVITY_CREATE', 'SETTINGS_MANAGE'])).toBe(true);
+    expect(await service.canAny(m, ['ACTIVITY_CREATE', 'MATCH_MANAGE_ANY'])).toBe(false);
+  });
+
   it('grants exactly what the member’s roles carry', async () => {
     const organiser = '200000000000000001';
     const { service } = serviceWith({ [organiser]: ['ACTIVITY_CREATE'] });

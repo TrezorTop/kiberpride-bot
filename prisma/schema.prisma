@@ -116,6 +116,7 @@ model Purchase {
 // ─── Settings ───────────────────────────────────────────────────────────────
 
 /// Singleton row, id = 1.
+/// Raw SQL: CHECK "GuildSettings_recruitTimeoutHours_nonnegative" (recruitTimeoutHours >= 0).
 model GuildSettings {
   id                      Int      @id @default(1)
   logChannelId            String?
@@ -123,6 +124,8 @@ model GuildSettings {
   defaultRecruitChannelId String?
   defaultVoiceCategoryId  String?
   autoMoveToVoice         Boolean  @default(false)
+  /// An unfilled recruitment is cancelled after this many hours; 0 = never (decision 009 §5).
+  recruitTimeoutHours     Int      @default(3)
   updatedAt               DateTime @default(now()) @updatedAt @db.Timestamptz(3)
 }
 
@@ -154,6 +157,8 @@ enum RewardEvent {
 /// A rule for a specific game overrides the default rule (gameId null).
 /// Raw SQL: partial UNIQUE INDEX "RewardRule_event_default_key" ON (event) WHERE gameId IS NULL
 ///          — Postgres treats NULLs as distinct, so @@unique alone allows two defaults.
+/// Raw SQL: CHECK "RewardRule_amount_nonnegative" (amount >= 0) — a negative reward would
+///          debit players through economy.move (decision 008 §11).
 model RewardRule {
   id     Int         @id @default(autoincrement())
   event  RewardEvent
@@ -226,13 +231,18 @@ model Match {
   voiceCategoryId  String
   voiceChannelAId  String?
   voiceChannelBId  String?
-  rewards          Json // snapshot of the resolved amounts at creation
+  rewards          Json // snapshot of the resolved amounts at creation (×2 when special)
+  /// ⭐ special match: every reward doubled; toggled only while RECRUITING (decision 009 §1).
+  special          Boolean     @default(false)
+  /// The last status sync announced in the recruit channel; NULL after a reopen (008 §8).
+  announcedStatus  MatchStatus?
   winner           Winner?
-  mvpUserId        String?
+  mvpUserId        String? // null on a finished match = «без MVP» (decision 009 §3)
   createdAt        DateTime    @default(now()) @db.Timestamptz(3)
   closedAt         DateTime?   @db.Timestamptz(3)
   startedAt        DateTime?   @db.Timestamptz(3)
   endedAt          DateTime?   @db.Timestamptz(3)
+  /// Who finished or cancelled; null on a CANCELLED match = closed by the recruit timeout (009 §5).
   endedById        String?
 
   game         Game            @relation(fields: [gameId], references: [id])

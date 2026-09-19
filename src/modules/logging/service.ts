@@ -7,6 +7,8 @@ import type { Logger } from './logger.js';
 export interface LoggingService {
   /** Structured event: pino always; the log channel when `audit` text is given. */
   event(name: string, fields: Record<string, unknown>, audit?: string): Promise<void>;
+  /** Same as `event`, at error level: something failed and someone should look (sync, jobs). */
+  failure(name: string, fields: Record<string, unknown>, audit?: string): Promise<void>;
   /** Ensures the log channel exists (creating it if missing or deleted) and stores its id. */
   ensureLogChannel(): Promise<string>;
   /** The quiet «alive» line on start, carrying the version (rule bot-always-on §4). */
@@ -32,6 +34,11 @@ export function createLoggingService(deps: {
   return {
     async event(name, fields, auditLine) {
       logger.info({ event: name, ...fields }, name);
+      if (auditLine) await post(auditLine);
+    },
+
+    async failure(name, fields, auditLine) {
+      logger.error({ event: name, ...fields }, name);
       if (auditLine) await post(auditLine);
     },
 
