@@ -45,7 +45,7 @@ const DOMAIN_ERROR_TEXT: Record<DomainErrorCode, string> = {
 /** Why a clan or room name was refused (NameProblem, modules/shop/names.ts). */
 const NAME_PROBLEM_TEXT: Record<string, string> = {
   length: 'Название должно быть от 2 до 32 символов.',
-  chars: 'В названии можно только буквы, цифры, эмодзи, пробел и - _ . ! ?',
+  chars: 'В названии можно только буквы, цифры, эмодзи, пробел и - _ . ! ? — и хотя бы одна буква, цифра или эмодзи.',
   link: 'Ссылки в названии нельзя.',
   reserved: 'Так назвать нельзя — это слово занято Discord.',
   role_taken: 'На сервере уже есть роль с таким названием.',

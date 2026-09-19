@@ -1,6 +1,6 @@
 # 014. Shop and earnings design — renewals extend the grant row, grants converge per (user, good), bot-owned roles and rooms, a minute tick for voice time
 
-**Status:** accepted; §3.1 and §3.2 amended by 015 (one media good; the clan role sits below an admin-picked anchor). Amends 002 §5 (the kind handler contract) and 003 §3 and §6 (purchase
+**Status:** accepted; §7 amended by 016 (own command); §3.2 amended by 017 (review); §3.1 and §3.2 amended by 015 (one media good; the clan role sits below an admin-picked anchor). Amends 002 §5 (the kind handler contract) and 003 §3 and §6 (purchase
 references, renewal, refund). Implements decision 013.
 **Date:** 2026-09-20
 **Decided by:** architect (technical). The product forks it raises are Q13–Q17; the bot is built
