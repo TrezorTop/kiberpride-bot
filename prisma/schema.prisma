@@ -1,0 +1,258 @@
+// First-release schema — decision 003 (product/decisions/003-first-release-schema.md).
+// Match state machine — decision 004. One deployment serves one guild: no guildId columns.
+//
+// Constraints Prisma cannot express are hand-written SQL in the migrations and named here
+// next to their model. Every one of them must have a db test that makes it fire.
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "esm"
+  importFileExtension    = "js"
+  generatedFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Economy ────────────────────────────────────────────────────────────────
+
+/// A Discord member known to the bot. Created on first contact by upsert.
+/// Raw SQL: CHECK "User_balance_nonnegative" (balance >= 0).
+model User {
+  id        String   @id // Discord snowflake
+  balance   Int      @default(0) // cached; only economy.move writes it (003 §4)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  transactions KpTransaction[]
+  purchases    Purchase[]
+  participants Participant[]
+}
+
+enum TxKind {
+  MATCH_PARTICIPATION
+  MATCH_WIN
+  MATCH_MVP
+  MATCH_BONUS
+  PURCHASE
+  ADMIN_ADJUST
+  REFUND
+}
+
+/// The ledger: append-only, one row per economic fact, `reference` makes it idempotent.
+/// Reference formats (003 §3): match:<id>:participation:<userId>, match:<id>:win:<userId>,
+/// match:<id>:mvp:<userId>, purchase:<purchaseId>, admin:<nonce>.
+/// Raw SQL: CHECK "KpTransaction_amount_nonzero" (amount <> 0).
+model KpTransaction {
+  id           Int      @id @default(autoincrement())
+  userId       String
+  amount       Int // signed
+  balanceAfter Int
+  kind         TxKind
+  reference    String   @unique
+  description  String
+  matchId      Int?
+  purchaseId   Int?
+  actorId      String? // who caused it (admin, organiser), snowflake
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  user     User      @relation(fields: [userId], references: [id])
+  match    Match?    @relation(fields: [matchId], references: [id])
+  purchase Purchase? @relation(fields: [purchaseId], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+// ─── Shop ───────────────────────────────────────────────────────────────────
+
+/// A good. `kind` is validated against the kind registry (src/modules/shop/kinds), `config`
+/// by that kind's schema (002 §5) — deliberately not an enum.
+/// Raw SQL: CHECK "ShopGood_price_positive" (price > 0).
+model ShopGood {
+  id           Int      @id @default(autoincrement())
+  slug         String   @unique
+  name         String
+  description  String
+  price        Int
+  kind         String
+  config       Json
+  validityDays Int? // null = forever (Q1 meanwhile)
+  enabled      Boolean  @default(false)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  purchases Purchase[]
+}
+
+enum PurchaseStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+/// A purchase and its grant are one row (003 §6).
+/// Raw SQL: partial UNIQUE INDEX "Purchase_one_active_per_user_good"
+///          ON (userId, goodId) WHERE status = 'ACTIVE' — a double click cannot buy twice.
+model Purchase {
+  id          Int            @id @default(autoincrement())
+  userId      String
+  goodId      Int
+  pricePaid   Int
+  status      PurchaseStatus @default(ACTIVE)
+  grantedAt   DateTime       @default(now()) @db.Timestamptz(3)
+  expiresAt   DateTime?      @db.Timestamptz(3)
+  appliedAt   DateTime?      @db.Timestamptz(3) // null = the Discord role is not confirmed yet
+  revokedAt   DateTime?      @db.Timestamptz(3)
+  revokedById String?
+
+  user         User            @relation(fields: [userId], references: [id])
+  good         ShopGood        @relation(fields: [goodId], references: [id])
+  transactions KpTransaction[]
+}
+
+// ─── Settings ───────────────────────────────────────────────────────────────
+
+/// Singleton row, id = 1.
+model GuildSettings {
+  id                      Int      @id @default(1)
+  logChannelId            String?
+  panelChannelId          String?
+  defaultRecruitChannelId String?
+  defaultVoiceCategoryId  String?
+  autoMoveToVoice         Boolean  @default(false)
+  updatedAt               DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+}
+
+/// What a Discord role may do. The guild owner and Discord Administrator hold every
+/// capability implicitly (src/modules/permissions).
+enum Capability {
+  ACTIVITY_CREATE // create recruitments (Q5 meanwhile: organiser and above)
+  MATCH_MANAGE_ANY // manage / finish / cancel any match, not only one's own
+  ECONOMY_ADMIN // adjust balances, pay withheld rewards, view any history
+  SHOP_MANAGE // create and edit goods
+  SETTINGS_MANAGE // channels, categories, roles, reward amounts
+}
+
+model RoleCapability {
+  id         Int        @id @default(autoincrement())
+  roleId     String
+  capability Capability
+
+  @@unique([roleId, capability])
+}
+
+enum RewardEvent {
+  PARTICIPATION
+  WIN
+  MVP
+  DRAW
+}
+
+/// A rule for a specific game overrides the default rule (gameId null).
+/// Raw SQL: partial UNIQUE INDEX "RewardRule_event_default_key" ON (event) WHERE gameId IS NULL
+///          — Postgres treats NULLs as distinct, so @@unique alone allows two defaults.
+model RewardRule {
+  id     Int         @id @default(autoincrement())
+  event  RewardEvent
+  gameId Int?
+  amount Int
+
+  // Cascade, not the default SetNull: a game's own rule must never turn into a second default.
+  game Game? @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([event, gameId])
+}
+
+model Game {
+  id              Int     @id @default(autoincrement())
+  slug            String  @unique
+  name            String
+  emoji           String
+  defaultTeamSize Int
+  enabled         Boolean @default(true)
+
+  rewardRules RewardRule[]
+  matches     Match[]
+}
+
+// ─── Matches ────────────────────────────────────────────────────────────────
+
+enum TeamMode {
+  AUTO
+  MANUAL
+}
+
+/// Decision 004 §1.
+enum MatchStatus {
+  RECRUITING
+  TEAMS_PENDING
+  IN_PROGRESS
+  FINISHED
+  CANCELLED
+}
+
+enum Winner {
+  A
+  B
+  DRAW
+}
+
+enum Team {
+  A
+  B
+}
+
+/// A recruitment and its match are one entity (003 §8).
+/// Raw SQL: CHECK "Match_teamSize_range" (teamSize BETWEEN 2 AND 10),
+///          CHECK "Match_capacity_twice_teamSize" (capacity = 2 * teamSize),
+///          CHECK "Match_participantCount_range" (participantCount BETWEEN 0 AND capacity).
+model Match {
+  id               Int         @id @default(autoincrement())
+  gameId           Int
+  title            String
+  teamSize         Int
+  capacity         Int
+  teamMode         TeamMode
+  status           MatchStatus @default(RECRUITING)
+  version          Int         @default(0)
+  syncedVersion    Int         @default(-1)
+  participantCount Int         @default(0)
+  createdById      String
+  recruitChannelId String
+  recruitMessageId String?
+  voiceCategoryId  String
+  voiceChannelAId  String?
+  voiceChannelBId  String?
+  rewards          Json // snapshot of the resolved amounts at creation
+  winner           Winner?
+  mvpUserId        String?
+  createdAt        DateTime    @default(now()) @db.Timestamptz(3)
+  closedAt         DateTime?   @db.Timestamptz(3)
+  startedAt        DateTime?   @db.Timestamptz(3)
+  endedAt          DateTime?   @db.Timestamptz(3)
+  endedById        String?
+
+  game         Game            @relation(fields: [gameId], references: [id])
+  participants Participant[]
+  transactions KpTransaction[]
+
+  @@index([status])
+}
+
+model Participant {
+  id           Int       @id @default(autoincrement())
+  matchId      Int
+  userId       String
+  team         Team?
+  joinedAt     DateTime  @default(now()) @db.Timestamptz(3)
+  leftServerAt DateTime? @db.Timestamptz(3)
+
+  match Match @relation(fields: [matchId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([matchId, userId])
+  @@index([userId])
+}
