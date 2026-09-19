@@ -92,7 +92,8 @@ the end and takes the grant back at the end; buying again while active extends b
   server, the KP Coin come back once and the player gets a private message.
 - **Away from the server:** a buyer keeps the purchase and its time runs on; everything returns
   when they come back. A clan member or room guest who leaves frees the seat.
-- **Settings:** `/игры → ⚙️ Настройки → 🛒 Магазин` — the channels for media access, the room
+- **Settings:** the command `/настройки-магазина` (decision 016; listed only for members who can
+  manage the server) — the channels for media access, the room
   category, the clan anchor role, switching each good on or off. Picking a channel lets the bot
   set its rights there (everyone denied, buyers allowed); a channel taken off the list gets its
   own rules back. A good is switched on only when nothing is missing, and the screen says in plain

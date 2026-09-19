@@ -378,7 +378,7 @@ export function playerNoticeEmbed(n: PlayerNotice): EmbedBuilder {
   }
 }
 
-// ─── Shop settings: /игры → ⚙️ Настройки → 🛒 Магазин (014 §7, 015) ─────────
+// ─── Shop settings: /настройки-магазина (014 §7, 015, 016) ──────────────────
 
 export function shopSettingsView(goods: readonly GoodAdminView[], selectedId: number | null, note?: string): View {
   const embed = brandEmbed()
@@ -455,17 +455,17 @@ export function shopSettingsView(goods: readonly GoodAdminView[], selectedId: nu
       ),
     );
   }
+  // A screen of its own, opened by /настройки-магазина (decision 016): no way back to /игры.
   const selected = goods.find((v) => v.good.id === selectedId);
-  const buttons: ButtonBuilder[] = [];
   if (selected) {
-    buttons.push(
-      selected.good.enabled
-        ? button(encodeCustomId('shen', selected.good.id, 0), `⛔ Выключить «${selected.good.name}»`.slice(0, 80), ButtonStyle.Danger)
-        : button(encodeCustomId('shen', selected.good.id, 1), `✅ Включить «${selected.good.name}»`.slice(0, 80), ButtonStyle.Success),
+    components.push(
+      row(
+        selected.good.enabled
+          ? button(encodeCustomId('shen', selected.good.id, 0), `⛔ Выключить «${selected.good.name}»`.slice(0, 80), ButtonStyle.Danger)
+          : button(encodeCustomId('shen', selected.good.id, 1), `✅ Включить «${selected.good.name}»`.slice(0, 80), ButtonStyle.Success),
+      ),
     );
   }
-  buttons.push(button(encodeCustomId('ssback'), '⬅️ Настройки игр', ButtonStyle.Secondary));
-  components.push(row(...buttons));
   return { embeds: [embed], components: components.slice(0, 5) };
 }
 
