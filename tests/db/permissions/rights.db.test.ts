@@ -76,11 +76,16 @@ describe('rights: setRoles', () => {
     expect(await rolesOf('SHOP_MANAGE')).toEqual([ROLE_B]);
   });
 
+  // Both savers must INSERT, or the scenario is mixture-free whatever the locking (review
+  // 2026-09-20): starting from [A], one saves [B] and the other [C]. Without the advisory lock
+  // this mixes about 98 % of the time; five passes make a false green impossible.
   it('two admins saving the same right at once leave one of their two sets, not a mixture', async () => {
     const rights = service();
-    await rights.setRoles(ADMIN, 'ACTIVITY_CREATE', [ROLE_A, ROLE_B]);
-    await Promise.all([rights.setRoles(ADMIN, 'ACTIVITY_CREATE', [ROLE_A]), rights.setRoles(ADMIN, 'ACTIVITY_CREATE', [ROLE_C])]);
-    expect([[ROLE_A], [ROLE_C]]).toContainEqual(await rolesOf('ACTIVITY_CREATE'));
+    for (let pass = 0; pass < 5; pass++) {
+      await rights.setRoles(ADMIN, 'ACTIVITY_CREATE', [ROLE_A]);
+      await Promise.all([rights.setRoles(ADMIN, 'ACTIVITY_CREATE', [ROLE_B]), rights.setRoles(ADMIN, 'ACTIVITY_CREATE', [ROLE_C])]);
+      expect([[ROLE_B], [ROLE_C]]).toContainEqual(await rolesOf('ACTIVITY_CREATE'));
+    }
   });
 
   it('ten concurrent saves of the same set leave exactly that set', async () => {

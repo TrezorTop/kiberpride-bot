@@ -1,4 +1,4 @@
-// Rights are checked in one place (spec «Roles on the server»). Which role may do what is data
+// Rights are checked in one place (spec Â«Roles on the serverÂ»). Which role may do what is data
 // (RoleCapability rows), not code. The guild owner and any member with Discord's Administrator
 // permission hold every capability implicitly, so a fresh server is never locked out.
 import { DomainError } from '../../core/errors.js';
@@ -9,10 +9,10 @@ import { Capability } from '../../generated/prisma/enums.js';
 export { Capability };
 export type CapabilityName = (typeof Capability)[keyof typeof Capability];
 
-/** Every capability, in the order the schema declares them — the order `/права` shows. */
+/** Every capability, in the order the schema declares them â€” the order `/Ð¿Ñ€Ð°Ð²Ð°` shows. */
 export const CAPABILITIES: readonly CapabilityName[] = Object.values(Capability);
 
-/** At most this many roles may hold one capability — Discord's own select limit. */
+/** At most this many roles may hold one capability â€” Discord's own select limit. */
 export const MAX_ROLES_PER_CAPABILITY = 25;
 
 /** What the Discord layer knows about the member pressing a button; no discord.js types. */
@@ -23,7 +23,7 @@ export interface MemberFacts {
   isAdministrator: boolean;
 }
 
-/** Capability → the role ids that hold it; every capability is a key, `[]` means «не задано». */
+/** Capability â†’ the role ids that hold it; every capability is a key, `[]` means Â«Ð½Ðµ Ð·Ð°Ð´Ð°Ð½Ð¾Â». */
 export type RightsMap = Record<CapabilityName, string[]>;
 
 /** What one save changed, for the log line. */
@@ -36,11 +36,11 @@ export interface PermissionsService {
   can(member: MemberFacts, capability: CapabilityName): Promise<boolean>;
   /** True when the member holds any of the capabilities. */
   canAny(member: MemberFacts, capabilities: readonly CapabilityName[]): Promise<boolean>;
-  /** The match's creator, or a holder of MATCH_MANAGE_ANY (decision 008 §6, Q5 meanwhile). */
+  /** The match's creator, or a holder of MATCH_MANAGE_ANY (decision 008 Â§6, Q5 meanwhile). */
   canManageMatch(member: MemberFacts, match: { createdById: string }): Promise<boolean>;
-  /** Role ids granted a capability — voice overwrites for organisers (decision 008 §7). */
+  /** Role ids granted a capability â€” voice overwrites for organisers (decision 008 Â§7). */
   rolesWith(capability: CapabilityName): Promise<string[]>;
-  /** The whole grant table, as the `/права` screen shows it. */
+  /** The whole grant table, as the `/Ð¿Ñ€Ð°Ð²Ð°` screen shows it. */
   listRights(): Promise<RightsMap>;
   /** Replaces the roles holding one capability; needs SETTINGS_MANAGE. */
   setRoles(actor: MemberFacts, capability: CapabilityName, roleIds: readonly string[]): Promise<RightsChange>;

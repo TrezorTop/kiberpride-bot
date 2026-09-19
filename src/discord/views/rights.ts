@@ -25,7 +25,8 @@ export const CAPABILITY_TEXT: Record<CapabilityName, { emoji: string; label: str
   MATCH_MANAGE_ANY: { emoji: '🛠️', label: 'Управлять чужими матчами', line: 'управлять любым матчем, а не только своим' },
   ECONOMY_ADMIN: { emoji: '💰', label: 'Управлять KP Coin', line: 'смотреть чужую историю и начислять KP Coin вручную' },
   SHOP_MANAGE: { emoji: '🛒', label: 'Управлять магазином', line: 'управлять товарами магазина' },
-  SETTINGS_MANAGE: { emoji: '⚙️', label: 'Менять настройки', line: 'менять настройки бота' },
+  // Self-amplifying: its holder can grant every other right, including KP Coin. Say so (020).
+  SETTINGS_MANAGE: { emoji: '⚙️', label: 'Менять настройки', line: 'менять настройки бота и раздавать права — в том числе на начисление KP Coin' },
 };
 
 export const NOT_SET = 'не задано';
