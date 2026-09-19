@@ -3,9 +3,9 @@
 **Status:** accepted
 **Date:** 2026-09-19
 **Decided by:** architect (harness author, at the owner's request while setting up the
-repository). The project architect may revise any technical part before the first code commit
-with a superseding record; the hosting constraints (§Decision 5–6) come from the owner's
-situation and are not revisable by the architect.
+repository). The project architect may revise any technical part AT ANY MOMENT with a
+superseding record (owner's decision 2026-09-19); the hosting constraints (§Decision 5–6) come
+from the owner's situation and are not revisable by the architect.
 
 ## Context
 
