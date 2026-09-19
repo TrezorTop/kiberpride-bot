@@ -18,6 +18,19 @@ goods, games, statistics and mechanics are added as modules without rewriting th
 Regular user · organiser (host) · moderator · administrator · owner/developer. Rights are checked
 in one place; what each role may do is configuration, not code.
 
+**As built:** the owner and anyone with Discord's «Администратор» may do everything, always. Every
+other right is given to a **role** on the `/права` screen: «создавать наборы на игры», «управлять
+любым матчем, а не только своим», «смотреть чужую историю и начислять KP Coin вручную»,
+«управлять товарами магазина», «менять настройки бота». Picking a right shows the roles that hold
+it; saving replaces that list, so a role left out loses the right at once. @everyone and the roles
+of bots cannot be given a right.
+
+**Who sees which command:** `/баланс`, `/профиль`, `/магазин` and `/бонус` are in everyone's list.
+`/игры`, `/настройки-магазина` and `/права` are hidden from everyone but members whose role carries
+Discord's «Администратор» — the owner shows `/игры` to the organisers in Настройки сервера →
+Интеграции → KiberPride Bot. Seeing a command grants nothing: every screen still asks the rights
+above and politely refuses whoever lacks them.
+
 ## 1. Economy — KP Coin
 
 Currency name `KP Coin`, shown in full after every amount: `💰 1 250 KP Coin` (decision 005).
@@ -220,7 +233,9 @@ expiry, renewal and refund are listed in §2; the new earnings in §1.
 
 ---
 
-Last verified: 2026-09-20 (§1, §2, §10 «as built» notes with the shop and earnings step,
+Last verified: 2026-09-20 («Roles on the server» «as built»: rights are given to roles on `/права`,
+and the three admin commands are hidden from non-administrators — checked by the automated suite,
+not yet walked on the live server; §1, §2, §10 «as built» notes with the shop and earnings step,
 decisions 014–015 — checked by the automated suite, not yet walked on the test server; §1, §2,
 §10: shop prices, 30-day goods, clan role, personal room, daily bonus, voice time — decision 013;
 §3–§5 walked by the owner on the test server; earlier: «KP Coin», decision 005; test server
