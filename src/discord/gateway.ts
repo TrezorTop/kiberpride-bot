@@ -231,6 +231,7 @@ export class DiscordGateway implements GuildGateway, AuditLog {
         mentionable: false,
         reason: spec.reason,
       });
+      if (spec.onCreated) await spec.onCreated(role.id); // before positioning, which may fail (017 §1)
       placed = true;
     } else if (spec.restyle) {
       await role.edit({ name: spec.name, colors: { primaryColor: spec.color }, reason: spec.reason });

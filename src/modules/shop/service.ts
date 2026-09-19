@@ -496,7 +496,9 @@ export function createShopService(deps: ShopDeps): ShopService {
       `↩️ ${mention(row.userId)}: «${good.name}» не удалось выдать за 30 минут — ${amount} KP Coin возвращены (покупка #${row.id}). Причина: ${why}`,
     );
     try {
-      await bound.revoke(stateOf(row), env);
+      // Re-read: this very pass may have created the clan role and saved its id (017 §1).
+      const fresh = (await db.purchase.findUnique({ where: { id: row.id }, include: grantInclude })) ?? row;
+      await bound.revoke(stateOf(fresh), env);
       await db.purchase.updateMany({ where: { id: row.id, cleanedAt: null }, data: { cleanedAt: clock.now() } });
     } catch (err) {
       await logging.failure('shop.refund_cleanup_failed', { purchaseId: row.id, err }); // the retry job cleans up

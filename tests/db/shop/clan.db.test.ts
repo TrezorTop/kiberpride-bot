@@ -208,6 +208,46 @@ describe('rename, convergence and expiry', () => {
     await expectShopInvariants();
   });
 
+  it('a role that cannot be positioned is created once, and the refund deletes it (017 §1)', async () => {
+    const h = await shopHarness({ applyWaitMs: 50 });
+    h.gateway.failPlacement = true;
+    h.gateway.failRoleOps = true; // the passes after the failed placement keep failing too
+    const before = h.gateway.roleCreates.length; // the media good's role, made by the harness
+    const r = await buyClan(h, OWNER, 'Упрямые');
+    await h.shop.idle();
+    expect(r.applied).toBe(false);
+    await h.shop.reconcile(OWNER, h.goods.clan);
+    await h.shop.reconcile(OWNER, h.goods.clan); // three failing passes in all, the buy's own first
+    const created = h.gateway.roleCreates.slice(before);
+    expect(created).toHaveLength(1);
+    const role = created[0];
+    expect(await clanRole(OWNER)).toBe(role);
+
+    h.clock.advance(31 * 60_000);
+    await h.shop.reconcile(OWNER, h.goods.clan);
+    await h.shop.idle();
+    expect((await testDb().purchase.findUniqueOrThrow({ where: { id: r.purchaseId } })).status).toBe('REFUNDED');
+    expect(h.gateway.roleCreates.slice(before)).toEqual([role]);
+    expect(h.gateway.roleDeletes).toEqual([role]);
+    await expectShopInvariants();
+  });
+
+  it('a rename after the role was deleted in Discord leaves creation to convergence: one new role, saved (017 §1)', async () => {
+    const h = await shopHarness();
+    await buyClan(h, OWNER, 'Пропавшие');
+    const old = (await clanRole(OWNER)) ?? '';
+    await h.gateway.deleteRole(old); // a moderator deleted it
+    const before = h.gateway.roleCreates.length;
+    await h.clans.restyle(OWNER, { name: 'Вернувшиеся', colorIndex: 1 });
+    await h.shop.idle();
+    expect(h.gateway.roleCreates.slice(before)).toHaveLength(1);
+    const now = await clanRole(OWNER);
+    expect(now).not.toBe(old);
+    expect(h.gateway.roles.get(now ?? '')).toMatchObject({ name: 'Вернувшиеся', color: 0xe67e22, below: ANCHOR_ROLE });
+    expect(h.gateway.holds(OWNER, now)).toBe(true);
+    await expectShopInvariants();
+  });
+
   it('without an anchor role the clan good cannot be enabled (decision 015 §4)', async () => {
     const h = await shopHarness();
     const good = await testDb().shopGood.findUniqueOrThrow({ where: { id: h.goods.clan } });

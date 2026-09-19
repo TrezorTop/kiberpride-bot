@@ -77,6 +77,8 @@ export const clanRoleKind = defineKind<ClanRoleConfig>({
       adoptByName: false,
       belowRoleId: good.config.anchorRoleId,
       reason: `KiberPride Bot: clan role #${clan.id} (decision 014 §3.2)`,
+      // Saved before positioning: a failed setPosition must not make the next pass create another (017 §1).
+      onCreated: (id) => env.saveClanRole(clan.id, id),
     });
     if (roleId !== clan.roleId) await env.saveClanRole(clan.id, roleId);
 

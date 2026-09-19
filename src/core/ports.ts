@@ -47,6 +47,11 @@ export interface RoleSpec {
   /** Place the role directly below this one on creation and on restyle (decision 015 §4). */
   belowRoleId: string | null;
   reason: string;
+  /**
+   * Awaited right after a creation, before the role is positioned: the caller saves the id there,
+   * so a failed `setPosition` never loses it and the next pass never creates a second role (017 §1).
+   */
+  onCreated?: (roleId: string) => Promise<void>;
 }
 
 export interface RoleCheck {

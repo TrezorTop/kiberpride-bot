@@ -203,9 +203,10 @@ export function createClanService(deps: ClanDeps): ClanService {
         throw err;
       }
       const row = await db.clan.findUniqueOrThrow({ where: { id: clan.clanId }, select: { roleId: true } });
-      // An explicit rename is the one time the name and colour are written onto the role (014 §3.2);
-      // a clan whose role does not exist yet gets them when convergence creates it.
-      if (row.roleId) {
+      // An explicit rename is the one time the name and colour are written onto the role (014 §3.2).
+      // Only an existing role is edited here: creating one would discard its id, so a missing role
+      // is left to convergence, which creates it with the new name and saves the id (017 §1).
+      if (row.roleId && (await gateway.roleManageable(row.roleId)).exists) {
         await gateway.ensureRole({
           currentId: row.roleId,
           name,
@@ -214,6 +215,10 @@ export function createClanService(deps: ClanDeps): ClanService {
           adoptByName: false,
           belowRoleId: config.data.anchorRoleId,
           reason: `KiberPride Bot: clan #${clan.clanId} renamed by its owner`,
+          // Deleted in Discord between the check and the edit: keep the new id unless convergence saved one.
+          onCreated: async (id) => {
+            await db.clan.updateMany({ where: { id: clan.clanId, roleId: row.roleId }, data: { roleId: id } });
+          },
         });
       }
       await logging.event(

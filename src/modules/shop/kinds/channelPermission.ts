@@ -33,6 +33,7 @@ export const channelPermissionKind = defineKind<ChannelPermissionConfig>({
       adoptByName: true,
       belowRoleId: null,
       reason: `KiberPride Bot: role of the good «${good.name}» (decision 014 §3.1)`,
+      onCreated: (id) => env.saveGoodConfig(good.id, { roleId: id }),
     });
     if (roleId !== good.config.roleId) await env.saveGoodConfig(good.id, { roleId });
     if (!(await gateway.roleManageable(roleId)).belowBot) problems.push({ code: 'role_above_bot' });

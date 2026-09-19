@@ -196,17 +196,29 @@ export class FakeGateway implements GuildGateway {
   /** Users who do not accept private messages (50007). */
   readonly dmClosed = new Set<string>();
 
-  ensureRole(spec: RoleSpec): Promise<string> {
+  /** Every positioning (after a creation or a restyle) throws while set: `setPosition` refused. */
+  failPlacement = false;
+
+  // Same steps as the real ensureRole: create → onCreated → position (decision 017 §1).
+  async ensureRole(spec: RoleSpec): Promise<string> {
     let role = spec.currentId ? (this.roles.get(spec.currentId) ?? null) : null;
     if (!role && spec.adoptByName) role = [...this.roles.values()].find((r) => r.name === spec.name) ?? null;
+    let placed = false;
     if (!role) {
-      role = { id: this.id(), name: spec.name, color: spec.color, below: spec.belowRoleId };
+      role = { id: this.id(), name: spec.name, color: spec.color, below: null };
       this.roles.set(role.id, role);
       this.roleCreates.push(role.id);
+      if (spec.onCreated) await spec.onCreated(role.id);
+      placed = true;
     } else if (spec.restyle) {
-      Object.assign(role, { name: spec.name, color: spec.color, below: spec.belowRoleId });
+      Object.assign(role, { name: spec.name, color: spec.color });
+      placed = true;
     }
-    return Promise.resolve(role.id);
+    if (placed && spec.belowRoleId) {
+      if (this.failPlacement) throw Object.assign(new Error('Missing Permissions'), { code: 50013 });
+      role.below = spec.belowRoleId;
+    }
+    return role.id;
   }
 
   deleteRole(id: string): Promise<void> {
