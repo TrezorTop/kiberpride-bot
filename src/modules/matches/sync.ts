@@ -18,6 +18,7 @@ import { Prisma, type Db, type Tx } from '../../db/client.js';
 import type { LoggingService } from '../logging/service.js';
 import { Capability, type PermissionsService } from '../permissions/service.js';
 import type { SettingsService } from '../settings/service.js';
+import type { FailureDedupe } from './syncFailures.js';
 
 /** A match ended this long ago still makes its category «managed» for orphan cleanup (008 §7). */
 const ORPHAN_WINDOW_MS = 7 * 24 * 60 * 60_000;
@@ -32,6 +33,8 @@ export interface SyncDeps {
   settings: SettingsService;
   logging: LoggingService;
   clock: Clock;
+  /** Shared with the sync-retry reporter: one log-channel line per (match, version). */
+  failures: FailureDedupe;
   load(client: Tx, id: number): Promise<MatchSnapshot | null>;
 }
 
@@ -101,10 +104,36 @@ export function createSyncer(deps: SyncDeps) {
       WHERE "id" = ${snap.id} AND "status" = ${snap.status}::"MatchStatus"`;
   }
 
+  /**
+   * The recruit channel is the one id `sync` cannot re-create: it is NOT NULL and the match was
+   * created in it. When it no longer resolves here — deleted, or left behind in the guild the bot
+   * served before (2026-09-20) — there is nowhere to post and nothing to converge, so the match
+   * is marked as synced as it will ever be and left to a person to cancel from `/игры`.
+   * Only «NotFound» gives up: a missing PERMISSION must keep failing loudly (architect's ruling).
+   */
+  async function recruitChannelGone(snap: MatchSnapshot): Promise<boolean> {
+    if (!(await gateway.checkRecruitChannel(snap.recruitChannelId)).includes('NotFound')) return false;
+    if (deps.failures.firstFor(snap.id, snap.version)) {
+      await logging.failure(
+        'match.recruit_channel_gone',
+        { matchId: snap.id, channelId: snap.recruitChannelId, version: snap.version, status: snap.status },
+        isTerminal(snap.status)
+          ? undefined // nothing for anyone to do about a match that is already over
+          : `⚠️ Матч #${snap.id}: канал набора больше не существует на этом сервере — отмени матч в «/игры».`,
+      );
+    }
+    return true;
+  }
+
   async function sync(id: number): Promise<void> {
     const read = await deps.load(db, id);
     if (!read) return;
     const version = read.version;
+
+    if (await recruitChannelGone(read)) {
+      await db.$executeRaw`UPDATE "Match" SET "syncedVersion" = ${version} WHERE "id" = ${id} AND "syncedVersion" < ${version}`;
+      return;
+    }
 
     const channels = await syncVoice(read);
     const snap: MatchSnapshot = { ...read, voiceChannelAId: channels.A, voiceChannelBId: channels.B };

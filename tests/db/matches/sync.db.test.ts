@@ -218,6 +218,58 @@ describe('sync retry (review 2026-09-20)', () => {
   });
 });
 
+// The recruit channel is the one id sync cannot re-create. Left behind when the bot moved guild
+// (2026-09-20), it made every sync fail forever; it now gives up once and waits for a person.
+describe('a recruit channel that no longer exists here', () => {
+  it('stops the sync, says so once with what to do, and marks the match as synced as it can be', async () => {
+    const h = await harness();
+    const id = await newMatch(h);
+    await h.matches.sync(id);
+    const rendersBefore = h.gateway.renders.length;
+
+    h.gateway.goneChannels.add(RECRUIT);
+    await h.matches.join(id, player(1));
+    await h.matches.sync(id);
+
+    expect(h.gateway.renders).toHaveLength(rendersBefore); // nothing was posted anywhere
+    const gone = h.logging.events.filter((e) => e.name === 'match.recruit_channel_gone');
+    expect(gone).toHaveLength(1);
+    expect(gone[0]?.audit).toContain('/игры');
+
+    // Marked synced, so the minute job stops picking it up — there is nothing left to try.
+    const m = await db().match.findUniqueOrThrow({ where: { id } });
+    expect(m.syncedVersion).toBe(m.version);
+    expect(await h.matches.unsynced()).toEqual([]);
+
+    // A new version says it once more; the same version does not.
+    await h.matches.sync(id);
+    await h.matches.join(id, player(2));
+    await h.matches.sync(id);
+    expect(h.logging.events.filter((e) => e.name === 'match.recruit_channel_gone')).toHaveLength(2);
+  });
+
+  it('a match the organiser then cancels needs no Discord, and the cancel is not blocked', async () => {
+    const h = await harness();
+    const id = await newMatch(h);
+    h.gateway.goneChannels.add(RECRUIT);
+    await h.matches.cancel(ORGANISER, id, (await h.matches.get(id)).version);
+    await h.matches.sync(id);
+    expect((await h.matches.get(id)).status).toBe('CANCELLED');
+    // Nothing actionable is said about a match that is already over.
+    expect(h.logging.events.filter((e) => e.name === 'match.recruit_channel_gone' && e.audit)).toHaveLength(0);
+    await expectInvariants();
+  });
+
+  it('a missing PERMISSION is not «gone»: it still fails loudly rather than giving up', async () => {
+    const h = await harness();
+    const id = await newMatch(h);
+    h.gateway.missingRecruit = ['SendMessages'];
+    h.gateway.failRenders = true;
+    await expect(h.matches.sync(id)).rejects.toThrow();
+    expect(h.logging.events.filter((e) => e.name === 'match.recruit_channel_gone')).toHaveLength(0);
+  });
+});
+
 /** Failure reports are fire-and-forget (they read the version first); let them land. */
 async function flush(): Promise<void> {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 20));
