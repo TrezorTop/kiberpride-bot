@@ -57,6 +57,49 @@ describe('customId codec', () => {
     expect(decodeCustomId(encodeCustomId('mcfm', 7, 0, 'B', '0'))).toEqual({ action: 'mcfm', args: ['7', '0', 'B', '0'] });
   });
 
+  it('round-trips every shop and earnings action at its longest arguments (decision 014 §10)', () => {
+    const id = 2_147_483_647;
+    const snowflake = '12345678901234567890';
+    const cases: [string, (string | number)[]][] = [
+      ['shsel', []],
+      ['shbuy', [id, id]],
+      ['shbuy', [7, 0]],
+      ['shcnew', [id]],
+      ['shclan', [id]],
+      ['clan', []],
+      ['cladd', []],
+      ['clrm', []],
+      ['clren', []],
+      ['clrenf', []],
+      ['clleave', []],
+      ['room', []],
+      ['rmname', []],
+      ['rmnamef', []],
+      ['rmlim', []],
+      ['rmlock', [1]],
+      ['rmadd', []],
+      ['rmrm', []],
+      ['hist', [snowflake]],
+      ['hpg', [snowflake, id]],
+      ['mybuy', []],
+      ['dexp', [id]],
+      ['dtop', ['AbC-_12345678xyz']],
+      ['daily', []],
+      ['sshop', []],
+      ['ssback', []],
+      ['shch', [id]],
+      ['shcat', [id]],
+      ['shanc', [id]],
+      ['shgs', []],
+      ['shen', [id, 1]],
+    ];
+    for (const [action, args] of cases) {
+      expect(decodeCustomId(encodeCustomId(action, ...args))).toEqual({ action, args: args.map(String) });
+    }
+    // The profile button posted before this step still opens page 1 of the history.
+    expect(decodeCustomId('kp1:hist:123456789012345678')).toEqual({ action: 'hist', args: ['123456789012345678'] });
+  });
+
   it('reads a version of 0 (a fresh match) but not a negative or padded one', () => {
     expect(versionArg('0')).toBe(0);
     expect(versionArg('12')).toBe(12);
