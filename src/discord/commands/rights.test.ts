@@ -7,7 +7,7 @@ describe('who sees which command', () => {
   // Owner, 2026-09-20: the three admin commands are hidden from everyone but members whose role
   // carries Discord's Administrator permission; the owner shows /игры to the organisers in
   // Server Settings → Integrations. The capability check in each command is the real guard.
-  it.each(['игры', 'настройки-магазина', 'права'])('/%s is hidden from everyone but administrators', (name) => {
+  it.each(['игры', 'настройки-магазина', 'права', 'начислить'])('/%s is hidden from everyone but administrators', (name) => {
     expect(def(name)).toBeDefined();
     expect(def(name)?.default_member_permissions).toBe('0');
   });
