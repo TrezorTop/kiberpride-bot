@@ -4,6 +4,8 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    // Explicit, not vitest's implicit default: NODE_ENV unset means production (src/config/env.ts).
+    env: { NODE_ENV: 'test' },
     projects: [
       {
         extends: true,

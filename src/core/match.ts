@@ -8,6 +8,7 @@ export type TeamModeName = 'AUTO' | 'MANUAL';
 
 export const TERMINAL_STATUSES: readonly MatchStatusName[] = ['FINISHED', 'CANCELLED'];
 export const OPEN_STATUSES: readonly MatchStatusName[] = ['RECRUITING', 'TEAMS_PENDING', 'IN_PROGRESS'];
+export type OpenStatusName = 'RECRUITING' | 'TEAMS_PENDING' | 'IN_PROGRESS';
 
 export function isTerminal(status: MatchStatusName): boolean {
   return TERMINAL_STATUSES.includes(status);

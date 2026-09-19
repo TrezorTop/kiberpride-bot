@@ -8,6 +8,7 @@ import { intArg } from '../customId.js';
 import { actorOf } from '../member.js';
 import type { ComponentRoute } from '../router.js';
 import { MODAL_FIELDS } from '../views/matches.js';
+import { noticeEmbed } from '../views/style.js';
 
 export const createMatchModal: ComponentRoute<ModalSubmitInteraction> = {
   defer: 'ephemeral',
@@ -29,9 +30,9 @@ export const createMatchModal: ComponentRoute<ModalSubmitInteraction> = {
       recruitChannelId: channelId,
     });
     const match = await ctx.matches.get(matchId);
-    const content = match.recruitMessageId
-      ? `✅ Игра создана — набор открыт: https://discord.com/channels/${interaction.guildId}/${match.recruitChannelId}/${match.recruitMessageId}\nУправлять матчем — кнопка «⚙️ Управление» под сообщением набора или /игры.`
-      : `✅ Игра создана, но опубликовать набор в <#${match.recruitChannelId}> пока не получилось. Проверь, что бот видит этот канал, и открой матч в /игры — я попробую снова.`;
-    await interaction.editReply({ content });
+    const text = match.recruitMessageId
+      ? `Набор открыт: https://discord.com/channels/${interaction.guildId}/${match.recruitChannelId}/${match.recruitMessageId}\nУправлять матчем — кнопка «⚙️ Управление» под сообщением набора или /игры.`
+      : `Опубликовать набор в <#${match.recruitChannelId}> пока не получилось. Проверь, что бот видит этот канал, и открой матч в /игры — я попробую снова.`;
+    await interaction.editReply({ embeds: [noticeEmbed(text, '✅ Игра создана')] });
   },
 };

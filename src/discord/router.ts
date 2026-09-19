@@ -22,6 +22,7 @@ import type { SettingsService } from '../modules/settings/service.js';
 import { decodeCustomId } from './customId.js';
 import type { GuildGateway } from '../core/ports.js';
 import { domainErrorText, NOT_READY, STALE_COMPONENT, UNEXPECTED_ERROR, WRONG_GUILD } from './views/messages.js';
+import { noticeEmbed } from './views/style.js';
 
 /** The guild this deployment serves, discovered at start (src/discord/client.ts). */
 export interface GuildBinding {
@@ -148,8 +149,9 @@ async function answerAfterDefer(interaction: Answerable, mode: DeferMode, conten
   try {
     // An `update` defer belongs to the pressed message, and after showModal there is nothing to
     // edit: the error goes privately to the presser as a follow-up.
-    if (mode === 'update' || mode === 'modal') await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
-    else await interaction.editReply({ content, embeds: [], components: [] });
+    if (mode === 'update' || mode === 'modal') {
+      await interaction.followUp({ embeds: [noticeEmbed(content)], flags: MessageFlags.Ephemeral });
+    } else await interaction.editReply({ content: null, embeds: [noticeEmbed(content)], components: [] });
   } catch (err) {
     ctx.logger.warn({ err }, 'could not deliver the error message');
   }
@@ -157,7 +159,7 @@ async function answerAfterDefer(interaction: Answerable, mode: DeferMode, conten
 
 async function privateReply(interaction: Answerable, content: string, ctx: AppContext): Promise<void> {
   try {
-    await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [noticeEmbed(content)], flags: MessageFlags.Ephemeral });
   } catch (err) {
     ctx.logger.warn({ err }, 'could not reply');
   }

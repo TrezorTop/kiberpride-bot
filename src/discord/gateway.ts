@@ -16,8 +16,10 @@ import {
 import { ensureChannel } from '../core/ensureChannel.js';
 import { isFakeUserId, type MatchSnapshot, type MatchStatusName } from '../core/match.js';
 import type { AuditLog, GuildGateway, MissingPermissions, VoiceChannelInfo, VoiceChannelSpec } from '../core/ports.js';
+import type { Logger } from '../modules/logging/logger.js';
 import type { GuildBinding } from './router.js';
 import { announcementView, recruitmentView } from './views/matches.js';
+import { noticeEmbed } from './views/style.js';
 
 export const LOG_CHANNEL_NAME = 'kp-логи';
 
@@ -37,6 +39,7 @@ export class DiscordGateway implements GuildGateway, AuditLog {
   constructor(
     private readonly client: Client,
     private readonly binding: GuildBinding,
+    private readonly log?: Pick<Logger, 'warn'>,
   ) {}
 
   async ensureLogChannel(currentId: string | null): Promise<string> {
@@ -80,7 +83,7 @@ export class DiscordGateway implements GuildGateway, AuditLog {
     if (!this.logChannelId) throw new Error('log channel not ensured yet');
     const channel = await this.client.channels.fetch(this.logChannelId);
     if (!channel?.isSendable()) throw new Error(`log channel ${this.logChannelId} is not sendable`);
-    await channel.send({ content: line, allowedMentions: { parse: [] } });
+    await channel.send({ embeds: [noticeEmbed(line)], allowedMentions: { parse: [] } });
   }
 
   // ─── Matches (decision 008 §12) ───────────────────────────────────────────
@@ -214,10 +217,14 @@ export class DiscordGateway implements GuildGateway, AuditLog {
   /** Full replace (008 §7): @everyone out, the bot in, organisers and the team in. */
   private teamOverwrites(guild: Guild, spec: VoiceChannelSpec): OverwriteResolvable[] {
     const allow = (id: string, type: OverwriteType, perms: PermissionResolvable): OverwriteResolvable => ({ id, type, allow: perms });
+    // A deleted role still named in RoleCapability would make Discord refuse the whole overwrite
+    // set, and the channel would never open (review 2026-09-20).
+    const { kept, dropped } = knownRoleIds(spec.allowRoleIds, (id) => guild.roles.cache.has(id));
+    if (dropped.length > 0) this.log?.warn({ dropped, channel: spec.name }, 'team channel: roles no longer on the server left out of the overwrites');
     return [
       { id: guild.roles.everyone.id, type: OverwriteType.Role, deny: SEE_AND_JOIN },
       allow(this.botId(), OverwriteType.Member, BOT_IN_TEAM_CHANNEL),
-      ...spec.allowRoleIds.map((id) => allow(id, OverwriteType.Role, SEE_AND_JOIN)),
+      ...kept.map((id) => allow(id, OverwriteType.Role, SEE_AND_JOIN)),
       ...real(spec.allowUserIds).map((id) => allow(id, OverwriteType.Member, SEE_AND_JOIN)),
     ];
   }
@@ -232,6 +239,14 @@ export class DiscordGateway implements GuildGateway, AuditLog {
     if (!this.binding.id) throw new Error('no guild bound yet');
     return this.client.guilds.fetch(this.binding.id);
   }
+}
+
+/** Splits role ids into those the guild still has and those it does not. */
+export function knownRoleIds(ids: readonly string[], exists: (id: string) => boolean): { kept: string[]; dropped: string[] } {
+  const kept: string[] = [];
+  const dropped: string[] = [];
+  for (const id of ids) (exists(id) ? kept : dropped).push(id);
+  return { kept, dropped };
 }
 
 function isUnknown(err: unknown): boolean {

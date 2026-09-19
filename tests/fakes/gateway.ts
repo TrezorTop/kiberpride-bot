@@ -28,6 +28,8 @@ export class FakeGateway implements GuildGateway {
   crashAfterNextCreate = false;
   /** Runs inside renderMatchMessage, before it returns: a transition landing mid-sync. */
   duringRender: (() => Promise<void>) | null = null;
+  /** Every renderMatchMessage throws while set: Discord is down. */
+  failRenders = false;
   private nextId = 900_000_000_000_000_000n;
 
   private id(): string {
@@ -48,6 +50,7 @@ export class FakeGateway implements GuildGateway {
   }
 
   async renderMatchMessage(snapshot: MatchSnapshot, channelId: string, messageId: string | null): Promise<string> {
+    if (this.failRenders) throw new Error('simulated Discord outage');
     const id = messageId && this.messages.has(messageId) ? messageId : this.id();
     this.messages.set(id, { channelId, snapshot });
     this.renders.push({ matchId: snapshot.id, status: snapshot.status, messageId: id });

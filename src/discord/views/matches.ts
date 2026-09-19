@@ -21,6 +21,7 @@ import {
   isFakeUserId,
   type MatchSnapshot,
   type MatchStatusName,
+  type OpenStatusName,
   type ParticipantSnapshot,
   type RewardAmounts,
   type TeamName,
@@ -32,7 +33,7 @@ import { DEFAULT_TITLE, MAX_TEAM_SIZE, MAX_TITLE_LENGTH, MIN_TEAM_SIZE } from '.
 import { RECRUIT_TIMEOUT_CHOICES, type GuildSettingsView } from '../../modules/settings/service.js';
 import { encodeCustomId } from '../customId.js';
 import { formatSignedKp } from './format.js';
-import { brandEmbed } from './style.js';
+import { brandEmbed, noticeEmbed } from './style.js';
 
 type Row = ActionRowBuilder<MessageActionRowComponentBuilder>;
 export interface View {
@@ -60,6 +61,19 @@ export const WINNER_ARG: Record<WinnerName, string> = { A: 'A', B: 'B', DRAW: 'D
 
 export function winnerFromArg(arg: string | undefined): WinnerName | null {
   return arg === 'A' ? 'A' : arg === 'B' ? 'B' : arg === 'D' ? 'DRAW' : null;
+}
+
+// The status a cancel panel was rendered in, carried in `mcan`/`mccf` (review 2026-09-20).
+const OPEN_STATUS_ARG: Partial<Record<MatchStatusName, string>> = { RECRUITING: 'R', TEAMS_PENDING: 'T', IN_PROGRESS: 'P' };
+
+function openStatusArg(status: MatchStatusName): string {
+  const arg = OPEN_STATUS_ARG[status];
+  if (!arg) throw new Error(`no cancel button in status ${status}`);
+  return arg;
+}
+
+export function openStatusFromArg(arg: string | undefined): OpenStatusName | null {
+  return arg === 'R' ? 'RECRUITING' : arg === 'T' ? 'TEAMS_PENDING' : arg === 'P' ? 'IN_PROGRESS' : null;
 }
 
 /** A player as the message shows them; fake players never become mentions (008 §10). */
@@ -158,21 +172,30 @@ export interface Announcement extends View {
 export function announcementView(m: MatchSnapshot, status: MatchStatusName): Announcement {
   const players = m.participants.filter((p) => p.leftServerAt === null && !isFakeUserId(p.userId)).map((p) => p.userId);
   switch (status) {
-    case 'TEAMS_PENDING':
+    // Decision 012: the words are in the embed; the message text carries ONLY the mentions,
+    // because a mention inside an embed notifies nobody.
+    case 'TEAMS_PENDING': {
+      const ping = isFakeUserId(m.createdById) ? [] : [m.createdById];
       return {
-        content: `${mention(m.createdById)}, состав матча #${m.id} (${m.game.name} ${format(m)}) собран! Распредели команды: «🔧 Распределить команды» под сообщением набора.`,
-        embeds: [],
+        ...pingContent(ping),
+        embeds: [
+          noticeEmbed(
+            `Состав матча #${m.id} (${m.game.name} ${format(m)}) собран! ${mention(m.createdById)}, распредели команды: «🔧 Распределить команды» под сообщением набора.`,
+            '🔧 Пора распределить команды',
+          ),
+        ],
         components: [],
-        pingUserIds: isFakeUserId(m.createdById) ? [] : [m.createdById],
+        pingUserIds: ping,
       };
+    }
     case 'IN_PROGRESS': {
       const lines = (['A', 'B'] as const).map((t) => {
         const channel = t === 'A' ? m.voiceChannelAId : m.voiceChannelBId;
         return `${TEAM_TITLE[t]}: ${team(m, t).map(who).join(', ')}${channel ? ` → <#${channel}>` : ''}`;
       });
       return {
-        content: [`🎮 Матч #${m.id} (${m.game.name} ${format(m)}) начался! Удачной игры 🍀`, ...lines].join('\n'),
-        embeds: [],
+        ...pingContent(players),
+        embeds: [noticeEmbed(lines.join('\n'), `🎮 Матч #${m.id} (${m.game.name} ${format(m)}) начался! Удачной игры 🍀`)],
         components: [],
         pingUserIds: players,
       };
@@ -181,10 +204,14 @@ export function announcementView(m: MatchSnapshot, status: MatchStatusName): Ann
       return { embeds: [resultCard(m)], components: [], pingUserIds: [] };
     case 'CANCELLED': {
       const why = m.endedById === null ? ' — набор закрыт по времени' : '';
-      const who = players.length > 0 ? `\n${players.map(mention).join(' ')}` : '';
       return {
-        content: `🚫 Матч #${m.id} (${m.game.name} ${format(m)}) отменён${why}. KP Coin не начислялись — ждём вас в следующих играх!${who}`,
-        embeds: [],
+        ...pingContent(players),
+        embeds: [
+          noticeEmbed(
+            `${m.game.name} ${format(m)}${why}. KP Coin не начислялись — ждём вас в следующих играх!`,
+            `🚫 Матч #${m.id} отменён`,
+          ),
+        ],
         components: [],
         pingUserIds: players,
       };
@@ -192,6 +219,11 @@ export function announcementView(m: MatchSnapshot, status: MatchStatusName): Ann
     default:
       return { embeds: [], components: [], pingUserIds: [] };
   }
+}
+
+/** The message text of an announcement: only the mentions that must notify, or nothing. */
+function pingContent(userIds: readonly string[]): { content?: string } {
+  return userIds.length > 0 ? { content: userIds.map(mention).join(' ') } : {};
 }
 
 /** The FINISHED card: game, winner, rosters, MVP, paid and withheld amounts (008 §8). */
@@ -383,7 +415,7 @@ export function matchPanelView(m: MatchSnapshot, names: Names, flags: PanelFlags
   }
 
   const components: Row[] = [];
-  const cancel = button(encodeCustomId('mcan', m.id, m.version), '🚫 Отменить матч', ButtonStyle.Danger);
+  const cancel = () => button(encodeCustomId('mcan', m.id, m.version, openStatusArg(m.status)), '🚫 Отменить матч', ButtonStyle.Danger);
   const remove = () =>
     new StringSelectMenuBuilder()
       .setCustomId(encodeCustomId('mrm', m.id))
@@ -398,7 +430,7 @@ export function matchPanelView(m: MatchSnapshot, names: Names, flags: PanelFlags
         : button(encodeCustomId('mspc', m.id, 1), '⭐ Особый матч ×2', ButtonStyle.Secondary),
     ];
     if (flags.canTest) buttons.push(button(encodeCustomId('mtest', m.id), '🧪 Добавить тестовых игроков', ButtonStyle.Secondary));
-    buttons.push(cancel);
+    buttons.push(cancel());
     components.push(row(...buttons));
   } else if (m.status === 'TEAMS_PENDING') {
     const picker = new StringSelectMenuBuilder()
@@ -418,10 +450,10 @@ export function matchPanelView(m: MatchSnapshot, names: Names, flags: PanelFlags
     components.push(
       row(picker),
       row(remove()),
-      row(button(encodeCustomId('mtok', m.id, m.version), '✅ Подтвердить команды', ButtonStyle.Success, !ready), cancel),
+      row(button(encodeCustomId('mtok', m.id, m.version), '✅ Подтвердить команды', ButtonStyle.Success, !ready), cancel()),
     );
   } else if (m.status === 'IN_PROGRESS') {
-    components.push(row(button(encodeCustomId('mfin', m.id), '🏁 Завершить матч', ButtonStyle.Primary), cancel));
+    components.push(row(button(encodeCustomId('mfin', m.id), '🏁 Завершить матч', ButtonStyle.Primary), cancel()));
   }
   return { embeds: [embed], components };
 }
@@ -483,16 +515,19 @@ export function finishConfirmView(m: MatchSnapshot, winner: WinnerName, mvpUserI
 }
 
 export function finishedView(m: MatchSnapshot): View {
-  return { content: '✅ Матч завершён, награды начислены. Итог опубликован в канале набора.', embeds: [resultCard(m)], components: [] };
+  return {
+    embeds: [noticeEmbed('Награды начислены. Итог опубликован в канале набора.', '✅ Матч завершён'), resultCard(m)],
+    components: [],
+  };
 }
 
 export function cancelConfirmView(m: MatchSnapshot): View {
   const embed = brandEmbed()
     .setTitle(`🚫 Отменить матч #${m.id}?`)
     .setDescription(`${heading(m)} · ${m.title}\nИгроки получат уведомление, KP Coin не начисляются, голосовые каналы удалятся.`);
-  return { embeds: [embed], components: [row(button(encodeCustomId('mccf', m.id, m.version), '🚫 Да, отменить', ButtonStyle.Danger))] };
+  return { embeds: [embed], components: [row(button(encodeCustomId('mccf', m.id, m.version, openStatusArg(m.status)), '🚫 Да, отменить', ButtonStyle.Danger))] };
 }
 
 export function cancelledView(m: MatchSnapshot): View {
-  return { content: `Матч #${m.id} отменён. Игроки получат уведомление в канале набора.`, embeds: [], components: [] };
+  return { embeds: [noticeEmbed('Игроки получат уведомление в канале набора.', `🚫 Матч #${m.id} отменён`)], components: [] };
 }

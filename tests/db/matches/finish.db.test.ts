@@ -195,15 +195,14 @@ describe('finish', () => {
 
   it('two finishes sharing a player, run concurrently, both complete (no deadlock)', async () => {
     const h = await harness();
-    // Players 1..4 sign up to both x and y while recruiting; each then fills with its own players.
-    const x = await newMatch(h, { teamSize: 5 });
-    const y = await newMatch(h, { teamSize: 5 });
+    // Since decision 011 a start withdraws its players from other recruitments, so two started
+    // matches sharing players exist only from before it (or behind the service). Built by hand:
+    // players 1..4 replace four of y's players; the finish lock order must still hold for them.
+    const { id: x } = await startedMatch(h, { teamSize: 5, from: 1 });
+    const { id: y } = await startedMatch(h, { teamSize: 5, from: 20 });
     for (let k = 1; k <= 4; k++) {
-      await h.matches.join(x, player(k));
-      await h.matches.join(y, player(k));
+      await db().participant.update({ where: { matchId_userId: { matchId: y, userId: player(19 + k) } }, data: { userId: player(k) } });
     }
-    await fill(h, x, 6, 10);
-    await fill(h, y, 6, 20);
     const [sx, sy] = [await h.matches.get(x), await h.matches.get(y)];
     expect([sx.status, sy.status]).toEqual(['IN_PROGRESS', 'IN_PROGRESS']);
 
@@ -219,10 +218,15 @@ describe('finish', () => {
 });
 
 describe('⭐ special match ×2 (decision 009 §1)', () => {
-  it('doubles every reward while on, and toggling back restores the settings amounts', async () => {
+  it('doubles the creation-time amounts while on and restores them when off, whatever the settings say now', async () => {
     const h = await harness();
     await db().rewardRule.updateMany({ where: { event: 'DRAW', gameId: null }, data: { amount: 5 } });
     const id = await newMatch(h);
+    const created = { participation: 25, win: 100, mvp: 50, draw: 5 };
+    expect((await h.matches.get(id)).rewards).toEqual(created);
+    // The settings change after creation: neither toggle may pick it up (review 2026-09-20).
+    await db().rewardRule.updateMany({ where: { event: 'WIN', gameId: null }, data: { amount: 999 } });
+    await db().rewardRule.updateMany({ where: { event: 'PARTICIPATION', gameId: null }, data: { amount: 7 } });
     const v0 = (await h.matches.get(id)).version;
 
     const v1 = await h.matches.setSpecial(ORGANISER, id, true);
@@ -230,8 +234,17 @@ describe('⭐ special match ×2 (decision 009 §1)', () => {
     expect(await h.matches.get(id)).toMatchObject({ special: true, rewards: { participation: 50, win: 200, mvp: 100, draw: 10 } });
 
     await h.matches.setSpecial(ORGANISER, id, false);
-    expect(await h.matches.get(id)).toMatchObject({ special: false, rewards: { participation: 25, win: 100, mvp: 50, draw: 5 } });
+    expect(await h.matches.get(id)).toMatchObject({ special: false, rewards: created });
     expect(h.logging.events.filter((e) => e.name === 'match.special')).toHaveLength(2);
+  });
+
+  it('on/off/on/off in a row, concurrently too, always lands on creation ×1 or ×2', async () => {
+    const h = await harness();
+    const id = await newMatch(h);
+    await Promise.allSettled([true, false, true, false, true].map((on) => h.matches.setSpecial(ORGANISER, id, on)));
+    const snap = await h.matches.get(id);
+    const factor = snap.special ? 2 : 1;
+    expect(snap.rewards).toEqual({ participation: 25 * factor, win: 100 * factor, mvp: 50 * factor, draw: 0 });
   });
 
   it('a special match pays double at finish', async () => {
@@ -277,5 +290,43 @@ describe('cancel', () => {
     await expect(h.matches.finish(ORGANISER, { id, version: v, winner: 'A', mvpUserId: null })).rejects.toMatchObject({
       code: 'MATCH_CANCELLED',
     });
+  });
+
+  it('a RECRUITING panel still cancels after joins moved the version on', async () => {
+    const h = await harness();
+    const id = await newMatch(h);
+    const rendered = (await h.matches.get(id)).version;
+    await fill(h, id, 3);
+    expect((await h.matches.get(id)).version).toBe(rendered + 3);
+    await h.matches.cancel(ORGANISER, id, rendered, 'RECRUITING');
+    expect((await h.matches.get(id)).status).toBe('CANCELLED');
+  });
+
+  it('a RECRUITING panel is refused once the match has started, and nothing changes', async () => {
+    const h = await harness();
+    const id = await newMatch(h, { teamSize: 2 });
+    const rendered = (await h.matches.get(id)).version;
+    await fill(h, id, 4);
+    const started = await h.matches.get(id);
+    expect(started.status).toBe('IN_PROGRESS');
+    await expect(h.matches.cancel(ORGANISER, id, rendered, 'RECRUITING')).rejects.toMatchObject({ code: 'STALE_PANEL' });
+    expect(await h.matches.get(id)).toMatchObject({ status: 'IN_PROGRESS', version: started.version });
+  });
+
+  it('TEAMS_PENDING and IN_PROGRESS panels still need their exact version', async () => {
+    const h = await harness();
+    const pending = await newMatch(h, { teamSize: 2, teamMode: 'MANUAL' });
+    await fill(h, pending, 4);
+    const p = await h.matches.get(pending);
+    expect(p.status).toBe('TEAMS_PENDING');
+    await expect(h.matches.cancel(ORGANISER, pending, p.version - 1, 'TEAMS_PENDING')).rejects.toMatchObject({ code: 'STALE_PANEL' });
+    await expect(h.matches.cancel(ORGANISER, pending, p.version, 'RECRUITING')).rejects.toMatchObject({ code: 'STALE_PANEL' });
+    await h.matches.cancel(ORGANISER, pending, p.version, 'TEAMS_PENDING');
+    expect((await h.matches.get(pending)).status).toBe('CANCELLED');
+
+    const { id, version } = await startedMatch(h, { teamSize: 2, from: 10 });
+    await expect(h.matches.cancel(ORGANISER, id, version - 1, 'IN_PROGRESS')).rejects.toMatchObject({ code: 'STALE_PANEL' });
+    await h.matches.cancel(ORGANISER, id, version, 'IN_PROGRESS');
+    expect((await h.matches.get(id)).status).toBe('CANCELLED');
   });
 });

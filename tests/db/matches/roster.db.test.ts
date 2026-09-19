@@ -3,7 +3,7 @@
 // leaving the server is handled in every state. Concurrent calls each run on their own pool
 // connection, like real button presses.
 import { describe, expect, it } from 'vitest';
-import { testDb } from '../helpers.js';
+import { testDb, truncateAll } from '../helpers.js';
 import { codeOf, expectInvariants, fill, harness, MANAGER_ROLE, newMatch, ORGANISER, OWNER, player, startedMatch, STRANGER } from './harness.js';
 
 const db = testDb;
@@ -106,15 +106,13 @@ describe('one started match at a time (decision 009 §2)', () => {
     await expectInvariants();
   });
 
-  it('allows sign-ups to several recruitments, and keeps them when one starts', async () => {
+  it('allows sign-ups to several recruitments at once', async () => {
     const h = await harness();
     const x = await newMatch(h, { teamSize: 2 });
     const y = await newMatch(h, { teamSize: 2 });
     await h.matches.join(x, player(1));
     await h.matches.join(y, player(1));
-    await fill(h, x, 3, 2); // x starts with player 1 in it
-    expect((await h.matches.get(x)).status).toBe('IN_PROGRESS');
-    expect(await db().participant.count({ where: { matchId: y, userId: player(1) } })).toBe(1);
+    expect(await db().participant.count({ where: { userId: player(1) } })).toBe(2);
   });
 
   it('a player who left the server in their started match is not blocked by it', async () => {
@@ -123,6 +121,76 @@ describe('one started match at a time (decision 009 §2)', () => {
     await h.matches.memberLeft(player(1));
     const other = await newMatch(h, { teamSize: 2 });
     await expect(h.matches.join(other, player(1))).resolves.toMatchObject({ participantCount: 1 });
+  });
+});
+
+describe('a start withdraws its players from other recruitments (decision 011)', () => {
+  it('AUTO: the last seat of x takes x’s players out of recruiting y; y stays consistent', async () => {
+    const h = await harness();
+    const x = await newMatch(h, { teamSize: 2 });
+    const y = await newMatch(h, { teamSize: 2 });
+    await h.matches.join(y, player(1));
+    await h.matches.join(y, player(9));
+    await h.matches.join(x, player(1));
+    const yBefore = await h.matches.get(y);
+    await fill(h, x, 3, 2); // x starts with player 1
+
+    expect((await h.matches.get(x)).status).toBe('IN_PROGRESS');
+    const yAfter = await h.matches.get(y);
+    expect(yAfter.participants.map((p) => p.userId)).toEqual([player(9)]);
+    expect(yAfter).toMatchObject({ status: 'RECRUITING', participantCount: 1, version: yBefore.version + 1 });
+    const line = h.logging.events.find((e) => e.name === 'match.withdrawn');
+    expect(line?.fields).toMatchObject({ matchId: y, userId: player(1), startedMatchId: x, reopened: false });
+    expect(line?.audit).toContain(`выписан из набора #${y} — начался матч #${x}`);
+    await expectInvariants();
+  });
+
+  it('MANUAL confirm: a TEAMS_PENDING y reopens with its teams cleared and its announcement reset', async () => {
+    const h = await harness();
+    const x = await newMatch(h, { teamSize: 2, teamMode: 'MANUAL' });
+    const y = await newMatch(h, { teamSize: 2, teamMode: 'MANUAL' });
+    await fill(h, x, 4, 1); // players 1..4 in x, TEAMS_PENDING
+    await h.matches.join(y, player(1)); // allowed: x has not started
+    await fill(h, y, 3, 10); // y TEAMS_PENDING too
+    await h.matches.assignTeamA(ORGANISER, y, [player(1), player(10)]);
+    await db().match.update({ where: { id: y }, data: { announcedStatus: 'TEAMS_PENDING' } });
+    const v = await h.matches.assignTeamA(ORGANISER, x, [player(1), player(2)]);
+
+    await h.matches.confirmTeams(ORGANISER, x, v);
+
+    expect((await h.matches.get(x)).status).toBe('IN_PROGRESS');
+    const m = await h.matches.get(y);
+    expect(m).toMatchObject({ status: 'RECRUITING', participantCount: 3, announcedStatus: null });
+    expect(m.participants.map((p) => p.userId).sort()).toEqual([player(10), player(11), player(12)].sort());
+    expect(m.participants.every((p) => p.team === null)).toBe(true);
+    expect(h.logging.events.find((e) => e.name === 'match.withdrawn')?.fields).toMatchObject({ matchId: y, reopened: true });
+    await expectInvariants();
+  });
+
+  it('two recruitments sharing players filling at once: both presses settle, nobody plays twice, counts hold', async () => {
+    for (let round = 0; round < 8; round++) {
+      const h = await harness();
+      const x = await newMatch(h, { teamSize: 2 });
+      const y = await newMatch(h, { teamSize: 2 });
+      const base = round * 100;
+      for (const k of [1, 2]) {
+        await h.matches.join(x, player(base + k));
+        await h.matches.join(y, player(base + k));
+      }
+      await h.matches.join(x, player(base + 3));
+      await h.matches.join(y, player(base + 4));
+
+      const settled = await Promise.allSettled([h.matches.join(x, player(base + 5)), h.matches.join(y, player(base + 6))]);
+
+      expect(settled.map(codeOf)).toEqual([null, null]);
+      const playing = await db().participant.findMany({ where: { match: { status: 'IN_PROGRESS' }, leftServerAt: null }, select: { userId: true } });
+      const ids = playing.map((p) => p.userId);
+      expect(new Set(ids).size).toBe(ids.length);
+      const started = (await Promise.all([x, y].map((id) => h.matches.get(id)))).filter((m) => m.status === 'IN_PROGRESS');
+      expect(started.length).toBeGreaterThanOrEqual(1);
+      await expectInvariants();
+      await truncateAll();
+    }
   });
 });
 

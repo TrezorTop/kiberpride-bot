@@ -3,10 +3,12 @@ import { fakeUserId, type MatchSnapshot, type MatchStatusName, type ParticipantS
 import { decodeCustomId } from '../customId.js';
 import {
   announcementView,
+  cancelConfirmView,
   finishConfirmView,
   gamesPanelView,
   matchPanelView,
   mvpView,
+  openStatusFromArg,
   recruitmentView,
   resultCard,
   setupCategoryView,
@@ -123,24 +125,40 @@ describe('result card and announcements (008 §8, 009 §3)', () => {
     expect(announcementView(m, 'IN_PROGRESS').pingUserIds).toEqual([p(1).userId, p(3).userId]);
     expect(announcementView(m, 'CANCELLED').pingUserIds).toEqual([p(1).userId, p(3).userId]);
     expect(announcementView({ ...m, winner: 'B' }, 'FINISHED').pingUserIds).toEqual([]);
-    expect(announcementView({ ...m, endedById: null }, 'CANCELLED').content).toContain('набор закрыт по времени');
+    const timedOut = announcementView({ ...m, endedById: null }, 'CANCELLED');
+    // Decision 012: the words live in the embed; the message text is only the pinging mentions.
+    expect(timedOut.embeds[0]?.toJSON().description).toContain('набор закрыт по времени');
+    expect(timedOut.embeds[0]?.toJSON().color).toBe(0x226de6);
+    expect(timedOut.content).toBe(`<@${p(1).userId}> <@${p(3).userId}>`);
+  });
+
+  it('puts every announcement into a brand embed; text carries only mentions (decision 012)', () => {
+    const m = snap({ participants: [p(1, 'A'), p(3, 'B')] });
+    for (const status of ['TEAMS_PENDING', 'IN_PROGRESS', 'FINISHED', 'CANCELLED'] as const) {
+      const view = announcementView({ ...m, winner: 'A' }, status);
+      expect(view.embeds.length).toBeGreaterThan(0);
+      for (const e of view.embeds) expect(e.toJSON().color).toBe(0x226de6);
+      if (view.content !== undefined) expect(view.content).toMatch(/^(<@\d+>)( <@\d+>)*$/);
+    }
   });
 });
 
 describe('organiser panel by status (008 §6, 009 §1)', () => {
   const names = new Map<string, string>();
 
-  it('RECRUITING: remove select, ×2 toggle, test players when allowed, cancel with the version', () => {
+  it('RECRUITING: remove select, ×2 toggle, test players when allowed, cancel with the version and the status', () => {
     const m = snap({ participants: [p(1)], participantCount: 1 });
-    expect(actions(matchPanelView(m, names, { canTest: true }))).toEqual(['mrm:12', 'mspc:12:1', 'mtest:12', 'mcan:12:3']);
-    expect(actions(matchPanelView(m, names, { canTest: false }))).toEqual(['mrm:12', 'mspc:12:1', 'mcan:12:3']);
+    expect(actions(matchPanelView(m, names, { canTest: true }))).toEqual(['mrm:12', 'mspc:12:1', 'mtest:12', 'mcan:12:3:R']);
+    expect(actions(matchPanelView(m, names, { canTest: false }))).toEqual(['mrm:12', 'mspc:12:1', 'mcan:12:3:R']);
+    expect(actions(cancelConfirmView(m))).toEqual(['mccf:12:3:R']);
     expect(actions(matchPanelView({ ...m, special: true }, names, { canTest: false }))).toContain('mspc:12:0');
   });
 
   it('TEAMS_PENDING: the exact-size A picker with current A as defaults, confirm disabled until teams are full', () => {
     const m = snap({ status: 'TEAMS_PENDING', participants: [p(1, 'A'), p(2), p(3), p(4)], participantCount: 4 });
     const view = matchPanelView(m, names, { canTest: true });
-    expect(actions(view)).toEqual(['mteam:12', 'mrm:12', 'mtok:12:3', 'mcan:12:3']);
+    expect(actions(view)).toEqual(['mteam:12', 'mrm:12', 'mtok:12:3', 'mcan:12:3:T']);
+    expect(actions(cancelConfirmView(m))).toEqual(['mccf:12:3:T']);
     const picker = view.components[0]!.toJSON().components[0] as { min_values: number; max_values: number; options: { value: string; default?: boolean }[] };
     expect([picker.min_values, picker.max_values]).toEqual([2, 2]);
     expect(picker.options.filter((o) => o.default).map((o) => o.value)).toEqual([p(1).userId]);
@@ -151,8 +169,14 @@ describe('organiser panel by status (008 §6, 009 §1)', () => {
   });
 
   it('IN_PROGRESS: finish and cancel; terminal: nothing', () => {
-    expect(actions(matchPanelView(snap({ status: 'IN_PROGRESS', participants: teams }), names, { canTest: true }))).toEqual(['mfin:12', 'mcan:12:3']);
+    expect(actions(matchPanelView(snap({ status: 'IN_PROGRESS', participants: teams }), names, { canTest: true }))).toEqual(['mfin:12', 'mcan:12:3:P']);
     expect(actions(matchPanelView(snap({ status: 'FINISHED', participants: teams, winner: 'A' }), names, { canTest: true }))).toEqual([]);
+  });
+
+  it('decodes the rendered status of a cancel button; anything else is not a status', () => {
+    expect(['R', 'T', 'P'].map(openStatusFromArg)).toEqual(['RECRUITING', 'TEAMS_PENDING', 'IN_PROGRESS']);
+    expect(openStatusFromArg('F')).toBeNull();
+    expect(openStatusFromArg(undefined)).toBeNull();
   });
 });
 
