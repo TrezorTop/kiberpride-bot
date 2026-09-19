@@ -1,6 +1,7 @@
 // The Discord client and the one guild it serves (decision 002 §6). The owner never copies
 // ids: DISCORD_GUILD_ID is optional — with it unset the bot serves the single guild it is in.
 import { Client, GatewayIntentBits, type Guild } from 'discord.js';
+import type { GuildBindOutcome } from '../modules/settings/guildChange.js';
 import type { LoggingService } from '../modules/logging/service.js';
 import { commandDefinitions } from './commands/index.js';
 import { recover } from './recovery.js';
@@ -34,6 +35,8 @@ export interface BindDeps {
   logging: LoggingService;
   version: string;
   inviteUrl: string | null;
+  /** Drops every stored Discord id when the served guild is not the one they belong to. */
+  bindSettings: (guildId: string) => Promise<GuildBindOutcome>;
 }
 
 /**
@@ -70,6 +73,17 @@ export async function bindGuild(client: Client, configured: string | undefined, 
   ctx.guild.id = choice.guildId;
   const guild = await client.guilds.fetch(choice.guildId);
   ctx.logger.info({ guildId: guild.id, guildName: guild.name, fromEnv: Boolean(configured) }, 'serving guild');
+
+  // Before anything resolves a stored id: ids of another guild answer «Missing Access», which
+  // silently cost the log channel and the heartbeat on 2026-09-20.
+  const bound = await deps.bindSettings(guild.id);
+  if (bound.kind === 'changed') {
+    ctx.logger.warn(
+      { previousGuildId: bound.previousGuildId, guildId: guild.id, goodsCleared: bound.goodsCleared },
+      'guild changed — stored Discord ids dropped; set the channels again on the settings screens',
+    );
+  }
+
   await registerCommands(guild, ctx);
 
   // The full member cache: clan convergence compares a role's members with the database, and
@@ -81,10 +95,12 @@ export async function bindGuild(client: Client, configured: string | undefined, 
     ctx.logger.error({ err }, 'could not fetch the member list');
   }
 
+  // Not fatal and not an error: the next log event tries again (logging/service.ts), and the
+  // heartbeat below ensures it itself. Only a bot without Manage Channels stays without one.
   try {
     await deps.logging.ensureLogChannel();
   } catch (err) {
-    ctx.logger.error({ err }, 'could not ensure the log channel (does the bot have Manage Channels?)');
+    ctx.logger.warn({ err }, 'could not ensure the log channel yet (does the bot have Manage Channels?) — retrying on the next event');
   }
   await deps.logging.heartbeat(deps.version);
   await recover(ctx);

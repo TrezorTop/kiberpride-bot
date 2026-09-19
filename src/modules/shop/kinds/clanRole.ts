@@ -58,6 +58,7 @@ async function serverProblems(config: ClanRoleConfig, gateway: ShopGateway): Pro
 export const clanRoleKind = defineKind<ClanRoleConfig>({
   configSchema: clanRoleConfig,
   settable: ['anchorRoleId'],
+  guildIdKeys: ['anchorRoleId'],
   sharedResource: false,
 
   async validate(good, env) {

@@ -18,3 +18,25 @@ export const kinds: Readonly<Record<string, KindEntry>> = {
 export function bindKind(good: GoodRecord): BoundKind | null {
   return Object.hasOwn(kinds, good.kind) ? (kinds[good.kind]?.bind(good) ?? null) : null;
 }
+
+/**
+ * A config patch that forgets every Discord id of this good — a list becomes empty, a single id
+ * null — or null when there is nothing to forget. Used only when the deployment changes guild
+ * (src/modules/settings/guildChange.ts): the old guild's roles and channels do not exist here.
+ * Runs on the raw config, because a good whose config no longer parses must be cleared too, and
+ * it names only the cleared keys, so it merges over a concurrent settings save (014 §7).
+ */
+export function guildIdsPatch(kind: string, config: unknown): Record<string, unknown> | null {
+  if (!Object.hasOwn(kinds, kind) || config === null || typeof config !== 'object' || Array.isArray(config)) return null;
+  const current = config as Record<string, unknown>;
+  const patch: Record<string, unknown> = {};
+  for (const key of kinds[kind]?.guildIdKeys ?? []) {
+    const held = current[key];
+    if (Array.isArray(held)) {
+      if (held.length > 0) patch[key] = [];
+    } else if (held !== null && held !== undefined) {
+      patch[key] = null;
+    }
+  }
+  return Object.keys(patch).length > 0 ? patch : null;
+}

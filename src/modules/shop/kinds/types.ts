@@ -78,6 +78,12 @@ export interface KindHandler<C> {
   configSchema: z.ZodType<C>;
   /** The config keys the shop settings screen may change (014 §7). */
   settable: readonly (keyof C & string)[];
+  /**
+   * The config keys holding Discord ids. They are dropped when the deployment changes guild —
+   * an id of the old guild resolves to nothing here (src/modules/settings/guildChange.ts).
+   * A new kind with a snowflake in its config MUST name it here.
+   */
+  guildIdKeys: readonly (keyof C & string)[];
   /** One Discord resource serves every row of a (user, good) key: an ACTIVE row keeps it. */
   sharedResource: boolean;
   /** When a good is enabled, when its settings are saved, and at startup. May repair Discord. */
@@ -107,11 +113,14 @@ export interface BoundKind {
 
 export interface KindEntry {
   bind(good: GoodRecord): BoundKind | null;
+  /** Read without binding: a good whose config no longer parses must still lose its stale ids. */
+  guildIdKeys: readonly string[];
 }
 
 /** Wraps a typed handler so the registry can hold every kind without `any`. */
 export function defineKind<C extends Record<string, unknown>>(handler: KindHandler<C>): KindEntry {
   return {
+    guildIdKeys: handler.guildIdKeys,
     bind(good) {
       const parsed = handler.configSchema.safeParse(good.config);
       if (!parsed.success) return null;
