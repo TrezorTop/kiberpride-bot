@@ -3,7 +3,7 @@
 // money invariant every test re-checks (decision 014 Consequences: sum(ledger) = balance).
 import { expect } from 'vitest';
 import { createEconomyService, TxKind, type EconomyService } from '../../../src/modules/economy/service.js';
-import { createPermissionsService, dbCapabilitySource, dbRoleSource, type MemberFacts } from '../../../src/modules/permissions/service.js';
+import { createPermissionsService, dbPermissionSources, type MemberFacts } from '../../../src/modules/permissions/service.js';
 import { createClanService, type ClanService } from '../../../src/modules/shop/clan.js';
 import type { ChannelPermissionConfig } from '../../../src/modules/shop/kinds/channelPermission.js';
 import { DEFAULT_CLAN_PALETTE, DEFAULT_FORBIDDEN_WORDS, type ClanRoleConfig } from '../../../src/modules/shop/kinds/clanRole.js';
@@ -55,7 +55,7 @@ export async function shopHarness(opts: { maxMembers?: number; applyWaitMs?: num
   const logging = recordingLogging();
   const clock = new TestClock(new Date('2026-09-20T12:00:00Z'));
   const economy = createEconomyService(db);
-  const permissions = createPermissionsService(dbCapabilitySource(db), dbRoleSource(db));
+  const permissions = createPermissionsService(dbPermissionSources(db));
   const make = (nodeEnv = opts.nodeEnv ?? 'test') =>
     createShopService({ db, economy, permissions, logging, gateway, nodeEnv, clock, applyWaitMs: opts.applyWaitMs ?? 5_000 });
   const shop = make();

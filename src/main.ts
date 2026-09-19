@@ -25,7 +25,7 @@ import { createGamesService } from './modules/games/service.js';
 import { createLogger } from './modules/logging/logger.js';
 import { createLoggingService } from './modules/logging/service.js';
 import { createMatchesService } from './modules/matches/service.js';
-import { createPermissionsService, dbCapabilitySource, dbRoleSource } from './modules/permissions/service.js';
+import { createPermissionsService, dbPermissionSources } from './modules/permissions/service.js';
 import { createRewardsService } from './modules/rewards/service.js';
 import { createSettingsService } from './modules/settings/service.js';
 import { createClanService } from './modules/shop/clan.js';
@@ -52,7 +52,8 @@ async function main(): Promise<void> {
   const settings = createSettingsService(db);
   const logging = createLoggingService({ logger, settings, gateway, audit: gateway });
   const economy = createEconomyService(db);
-  const permissions = createPermissionsService(dbCapabilitySource(db), dbRoleSource(db));
+  // @everyone's role id is the guild's own id: `/права` must never hand a right to it.
+  const permissions = createPermissionsService({ ...dbPermissionSources(db), everyoneRoleId: () => binding.id });
   const games = createGamesService(db);
   const rewards = createRewardsService(db);
   const matches = createMatchesService({

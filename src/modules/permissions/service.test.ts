@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createPermissionsService, type CapabilityName, type MemberFacts } from './service.js';
+import { CAPABILITIES, createPermissionsService, type CapabilityName, type MemberFacts } from './service.js';
 
 const member = (over: Partial<MemberFacts> = {}): MemberFacts => ({
   userId: '100000000000000001',
@@ -9,9 +9,32 @@ const member = (over: Partial<MemberFacts> = {}): MemberFacts => ({
   ...over,
 });
 
-function serviceWith(grants: Record<string, CapabilityName[]>) {
+/** The grant table in memory: the db-backed store has its own tests (tests/db/permissions). */
+function memoryRights(initial: { capability: CapabilityName; roleId: string }[] = []) {
+  let rows = [...initial];
+  return {
+    current: () => rows,
+    list: () => Promise.resolve(rows.map((r) => ({ ...r }))),
+    replace: vi.fn((capability: CapabilityName, roleIds: readonly string[]) => {
+      const before = rows.filter((r) => r.capability === capability).map((r) => r.roleId);
+      const removed = before.filter((id) => !roleIds.includes(id));
+      const added = roleIds.filter((id) => !before.includes(id));
+      rows = rows.filter((r) => r.capability !== capability || roleIds.includes(r.roleId));
+      for (const roleId of added) rows.push({ capability, roleId });
+      return Promise.resolve({ added: [...added], removed });
+    }),
+  };
+}
+
+function serviceWith(grants: Record<string, CapabilityName[]>, opts: { everyoneRoleId?: string; rows?: { capability: CapabilityName; roleId: string }[] } = {}) {
   const source = vi.fn((roleIds: readonly string[]) => Promise.resolve(roleIds.flatMap((r) => grants[r] ?? [])));
-  return { service: createPermissionsService(source), source };
+  const rights = memoryRights(opts.rows);
+  const service = createPermissionsService({
+    capabilities: source,
+    rights,
+    everyoneRoleId: () => opts.everyoneRoleId ?? null,
+  });
+  return { service, source, rights };
 }
 
 describe('permissions', () => {
@@ -74,5 +97,46 @@ describe('permissions', () => {
     const m = member({ roleIds: ['299999999999999999', organiser] });
     expect(await service.can(m, 'ACTIVITY_CREATE')).toBe(true);
     expect(await service.can(m, 'MATCH_MANAGE_ANY')).toBe(false);
+  });
+
+  describe('/права', () => {
+    const admin = member({ isAdministrator: true });
+    const role = '200000000000000005';
+
+    it('lists every capability, with an empty set for the ones nobody holds', async () => {
+      const { service } = serviceWith({}, { rows: [{ capability: 'ACTIVITY_CREATE', roleId: role }] });
+      const rights = await service.listRights();
+      expect(Object.keys(rights).sort()).toEqual([...CAPABILITIES].sort());
+      expect(rights.ACTIVITY_CREATE).toEqual([role]);
+      expect(rights.SHOP_MANAGE).toEqual([]);
+    });
+
+    it('refuses a member without SETTINGS_MANAGE, and writes nothing', async () => {
+      const { service, rights } = serviceWith({});
+      await expect(service.setRoles(member(), 'ACTIVITY_CREATE', [role])).rejects.toMatchObject({ code: 'NOT_ALLOWED' });
+      expect(rights.replace).not.toHaveBeenCalled();
+    });
+
+    it('refuses @everyone even when the select says otherwise', async () => {
+      const guildId = '999000000000000001';
+      const { service, rights } = serviceWith({}, { everyoneRoleId: guildId });
+      await expect(service.setRoles(admin, 'ACTIVITY_CREATE', [role, guildId])).rejects.toMatchObject({ code: 'ROLE_NOT_GRANTABLE' });
+      expect(rights.replace).not.toHaveBeenCalled();
+    });
+
+    it('refuses a forged capability and a forged role id', async () => {
+      const { service, rights } = serviceWith({});
+      await expect(service.setRoles(admin, 'NOT_A_RIGHT' as CapabilityName, [role])).rejects.toMatchObject({ code: 'STALE_PANEL' });
+      await expect(service.setRoles(admin, 'ACTIVITY_CREATE', ['not-a-snowflake'])).rejects.toMatchObject({ code: 'STALE_PANEL' });
+      expect(rights.replace).not.toHaveBeenCalled();
+    });
+
+    it('saves the picked roles once each, and can clear a right entirely', async () => {
+      const { service, rights } = serviceWith({}, { rows: [{ capability: 'ACTIVITY_CREATE', roleId: role }] });
+      const other = '200000000000000006';
+      expect(await service.setRoles(admin, 'ACTIVITY_CREATE', [other, other])).toEqual({ added: [other], removed: [role] });
+      expect(await service.setRoles(admin, 'ACTIVITY_CREATE', [])).toEqual({ added: [], removed: [other] });
+      expect(rights.current()).toEqual([]);
+    });
   });
 });
