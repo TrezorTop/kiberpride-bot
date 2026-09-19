@@ -37,6 +37,43 @@ amount is acceptable, and who pays — the owner personally or the community? As
 first release runs locally and is ready to go live. **Meanwhile:** the bot runs on the owner's
 machine for tests only.
 
+## Q13. How is the player warned that a purchase ends tomorrow?
+
+Options:
+- a private message from the bot;
+- a ping in a chosen channel;
+- only a note in `/магазин` and `/профиль`.
+
+**Recommendation:** a private message; the note is always shown too. **Meanwhile:** a private
+message (decision 014 §4).
+
+## Q14. What GIF access really gives
+
+Discord cannot separate «GIF» from «any link preview». GIF access means that buyers' GIFs and
+link previews (YouTube and others) show in the chosen channels, and non-buyers' links stay plain
+text. Image access also lets a buyer upload `.gif` files. **Recommendation:** accept this, since
+it affects only the chosen channels. **Meanwhile:** built that way; measured on the test server.
+
+## Q15. Clan rules
+
+The clan is the buyer plus 10 members. A player can be in one clan only. The buyer adds members
+directly, and a member can leave at any time. **Recommendation:** as described.
+**Meanwhile:** as described.
+
+## Q16. The clan role's colour visibility
+
+A coloured role placed at the bottom is hidden behind any other coloured role the member has.
+Placing it higher makes the colour show but mixes the clan role with staff roles.
+**Recommendation:** place it just below the staff roles. The admin picks the anchor once.
+**Meanwhile:** at the bottom.
+
+## Q17. A buyer away from the server
+
+A buyer who leaves the server keeps their purchase: the time runs on, and it comes back if they
+return while it is still active. A personal room is visible to everyone but closed by default.
+**Recommendation:** as described. **Meanwhile:** as described.
+
 ---
 
-Last verified: 2026-09-20 (Q1 settled → decision 013; earlier: Q7 → 006, Q8–Q12 → 009).
+Last verified: 2026-09-20 (Q1 settled → decision 013; Q13–Q17 raised by decision 014; earlier:
+Q7 → 006, Q8–Q12 → 009).
