@@ -15,7 +15,9 @@ const EnvSchema = z.object({
   DISCORD_GUILD_ID: optional(snowflake),
   DATABASE_URL: z.string().trim().startsWith('postgresql://', 'DATABASE_URL must start with postgresql://'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // Unset means production: test-only features (008 §10) must be switched on, never left on by
+  // a forgotten variable. `npm run dev` and .env.example set development; vitest sets test.
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('production'),
   APP_VERSION: optional(z.string().trim().min(1)),
 });
 

@@ -75,6 +75,30 @@ describe('RewardRule_event_default_key', () => {
   });
 });
 
+describe('RewardRule_amount_nonnegative (decision 008 §11)', () => {
+  it('refuses a negative reward, which would debit players at finish', async () => {
+    expect(await refusal(`INSERT INTO "RewardRule" ("event", "gameId", "amount") VALUES ('WIN', NULL, -1)`)).toEqual({
+      code: CHECK,
+      constraint: 'RewardRule_amount_nonnegative',
+    });
+  });
+
+  it('accepts 0 (a draw that pays nothing extra)', async () => {
+    await sql(`INSERT INTO "RewardRule" ("event", "gameId", "amount") VALUES ('DRAW', NULL, 0)`);
+  });
+});
+
+describe('GuildSettings_recruitTimeoutHours_nonnegative (decision 009 §5)', () => {
+  it('defaults to 3 hours and refuses a negative timeout', async () => {
+    const row = await pool.query<{ h: number }>(`INSERT INTO "GuildSettings" ("id") VALUES (1) RETURNING "recruitTimeoutHours" AS h`);
+    expect(row.rows[0]!.h).toBe(3);
+    expect(await refusal(`UPDATE "GuildSettings" SET "recruitTimeoutHours" = -1 WHERE "id" = 1`)).toEqual({
+      code: CHECK,
+      constraint: 'GuildSettings_recruitTimeoutHours_nonnegative',
+    });
+  });
+});
+
 describe('KpTransaction_amount_nonzero', () => {
   it('refuses a ledger row of 0 KP', async () => {
     const zero = `INSERT INTO "KpTransaction" ("userId", "amount", "balanceAfter", "kind", "reference", "description")

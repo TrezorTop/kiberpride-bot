@@ -15,10 +15,15 @@ import { clientIdFromToken, inviteUrl } from './discord/invite.js';
 import { modals } from './discord/modals/index.js';
 import type { AppContext, GuildBinding } from './discord/router.js';
 import { selects } from './discord/selects/index.js';
+import { startRecruitTimeoutJob } from './jobs/recruitTimeout.js';
+import { startSyncRetryJob } from './jobs/syncRetry.js';
 import { createEconomyService } from './modules/economy/service.js';
+import { createGamesService } from './modules/games/service.js';
 import { createLogger } from './modules/logging/logger.js';
 import { createLoggingService } from './modules/logging/service.js';
-import { createPermissionsService, dbCapabilitySource } from './modules/permissions/service.js';
+import { createMatchesService } from './modules/matches/service.js';
+import { createPermissionsService, dbCapabilitySource, dbRoleSource } from './modules/permissions/service.js';
+import { createRewardsService } from './modules/rewards/service.js';
 import { createSettingsService } from './modules/settings/service.js';
 
 /** Container health check target (deploy/docker-compose.yml); bound to localhost only. */
@@ -36,16 +41,38 @@ async function main(): Promise<void> {
   const db = createDb(env.DATABASE_URL);
   const client = createClient();
   const binding: GuildBinding = { id: null };
-  const gateway = new DiscordGateway(client, binding);
+  const gateway = new DiscordGateway(client, binding, logger);
 
   const settings = createSettingsService(db);
   const logging = createLoggingService({ logger, settings, gateway, audit: gateway });
+  const economy = createEconomyService(db);
+  const permissions = createPermissionsService(dbCapabilitySource(db), dbRoleSource(db));
+  const games = createGamesService(db);
+  const rewards = createRewardsService(db);
+  const matches = createMatchesService({
+    db,
+    economy,
+    rewards,
+    games,
+    permissions,
+    settings,
+    logging,
+    gateway,
+    nodeEnv: env.NODE_ENV,
+    clock: systemClock,
+  });
   const ctx: AppContext = {
-    economy: createEconomyService(db),
-    permissions: createPermissionsService(dbCapabilitySource(db)),
+    economy,
+    permissions,
+    settings,
+    games,
+    rewards,
+    matches,
+    gateway,
     logging,
     logger,
     guild: binding,
+    nodeEnv: env.NODE_ENV,
   };
 
   // A process that cannot serve ends with exit 1; `restart: unless-stopped` brings up a clean one.
@@ -75,6 +102,22 @@ async function main(): Promise<void> {
     onStuck: (ms) => fatal(null, `no Discord connection for ${Math.round(ms / 60_000)} min`),
   });
 
+  // Decision 009 §5: unfilled recruitments close after GuildSettings.recruitTimeoutHours.
+  const stopRecruitTimeout = startRecruitTimeoutJob({
+    settings,
+    matches,
+    logging,
+    clock: systemClock,
+    isReady: () => binding.id !== null && isConnected(client),
+  });
+
+  // A failed sync is retried every minute, not only on the next change or restart.
+  const stopSyncRetry = startSyncRetryJob({
+    matches,
+    logging,
+    isReady: () => binding.id !== null && isConnected(client),
+  });
+
   const health = startHealthServer(async () => {
     if (!isConnected(client)) return false;
     await db.$queryRaw`SELECT 1`;
@@ -84,6 +127,8 @@ async function main(): Promise<void> {
   const shutdown = (signal: string) => {
     logger.info({ signal }, 'shutting down');
     stopWatchdog();
+    stopRecruitTimeout();
+    stopSyncRetry();
     health.close();
     void client
       .destroy()

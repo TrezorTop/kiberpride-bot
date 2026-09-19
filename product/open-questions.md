@@ -47,4 +47,5 @@ machine for tests only.
 
 ---
 
-Last verified: 2026-09-19 (Q7 settled → decision 006).
+Last verified: 2026-09-19 (Q7 settled → decision 006; Q8–Q12 raised by decision 008 and settled
+by the owner the same day → decision 009).

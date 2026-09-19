@@ -36,6 +36,12 @@ export function registerEvents(client: Client, deps: EventDeps): void {
     bind();
   });
 
+  // A player left the server: open recruitments and matches follow decision 004 §5.
+  client.on(Events.GuildMemberRemove, (member) => {
+    if (member.guild.id !== ctx.guild.id) return;
+    ctx.matches.memberLeft(member.id).catch((err: unknown) => ctx.logger.error({ err, userId: member.id }, 'memberLeft failed'));
+  });
+
   client.on(Events.InteractionCreate, (interaction) => {
     dispatch(interaction, deps.routes, ctx).catch((err: unknown) => ctx.logger.error({ err }, 'dispatch failed'));
   });

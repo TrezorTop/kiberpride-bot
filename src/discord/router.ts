@@ -12,11 +12,17 @@ import {
 } from 'discord.js';
 import { isDomainError } from '../core/errors.js';
 import type { EconomyService } from '../modules/economy/service.js';
+import type { GamesService } from '../modules/games/service.js';
 import type { Logger } from '../modules/logging/logger.js';
 import type { LoggingService } from '../modules/logging/service.js';
+import type { MatchesService } from '../modules/matches/service.js';
 import type { PermissionsService } from '../modules/permissions/service.js';
+import type { RewardsService } from '../modules/rewards/service.js';
+import type { SettingsService } from '../modules/settings/service.js';
 import { decodeCustomId } from './customId.js';
+import type { GuildGateway } from '../core/ports.js';
 import { domainErrorText, NOT_READY, STALE_COMPONENT, UNEXPECTED_ERROR, WRONG_GUILD } from './views/messages.js';
+import { noticeEmbed } from './views/style.js';
 
 /** The guild this deployment serves, discovered at start (src/discord/client.ts). */
 export interface GuildBinding {
@@ -26,9 +32,17 @@ export interface GuildBinding {
 export interface AppContext {
   economy: EconomyService;
   permissions: PermissionsService;
+  settings: SettingsService;
+  games: GamesService;
+  rewards: RewardsService;
+  matches: MatchesService;
+  /** Settings screen checks the bot's permissions through it (decision 008 §2). */
+  gateway: GuildGateway;
   logging: LoggingService;
   logger: Logger;
   guild: GuildBinding;
+  /** `production` hides the test-players button (decision 008 §10). */
+  nodeEnv: string;
 }
 
 export interface CommandRoute {
@@ -37,8 +51,25 @@ export interface CommandRoute {
   run(interaction: ChatInputCommandInteraction, ctx: AppContext): Promise<void>;
 }
 
-/** `ephemeral`: a private answer (editReply). `update`: the pressed message is edited. */
-export type DeferMode = 'ephemeral' | 'update';
+/**
+ * `ephemeral`: a private answer (editReply). `update`: the pressed message is edited.
+ * `modal`: NOT deferred — a modal must be the first response, so the handler calls showModal
+ * (or reply) itself after at most two indexed reads (decision 008 §3, amends 007 §1).
+ */
+export type DeferMode = 'ephemeral' | 'update' | 'modal';
+
+/** The part of an interaction `deferFor` touches; commands have no deferUpdate. */
+export interface Deferrable {
+  deferReply(options: { flags: MessageFlags.Ephemeral }): Promise<unknown>;
+  deferUpdate?: () => Promise<unknown>;
+}
+
+/** Defers by mode before the handler runs; a `modal` route is never deferred. */
+export async function deferFor(interaction: Deferrable, mode: DeferMode): Promise<void> {
+  if (mode === 'modal') return;
+  if (mode === 'update' && interaction.deferUpdate) await interaction.deferUpdate();
+  else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+}
 
 export interface ComponentRoute<I> {
   defer: DeferMode;
@@ -98,11 +129,10 @@ async function component<I extends ButtonInteraction | AnySelectMenuInteraction 
 
 async function guarded(interaction: Answerable, mode: DeferMode, ctx: AppContext, run: () => Promise<void>): Promise<void> {
   try {
-    if (mode === 'update' && !interaction.isChatInputCommand()) await interaction.deferUpdate();
-    else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await deferFor(interaction, interaction.isChatInputCommand() ? 'ephemeral' : mode);
     await run();
   } catch (err) {
-    if (isDomainError(err)) return answerAfterDefer(interaction, mode, domainErrorText(err.code), ctx);
+    if (isDomainError(err)) return answerAfterDefer(interaction, mode, domainErrorText(err), ctx);
     const where = interaction.isChatInputCommand() ? `/${interaction.commandName}` : interaction.customId;
     ctx.logger.error({ err, where, userId: interaction.user.id }, 'interaction failed');
     await ctx.logging.event(
@@ -117,9 +147,11 @@ async function guarded(interaction: Answerable, mode: DeferMode, ctx: AppContext
 async function answerAfterDefer(interaction: Answerable, mode: DeferMode, content: string, ctx: AppContext): Promise<void> {
   if (!interaction.deferred && !interaction.replied) return privateReply(interaction, content, ctx);
   try {
-    // An `update` defer belongs to the public message; the error goes privately to the presser.
-    if (mode === 'update') await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
-    else await interaction.editReply({ content, embeds: [], components: [] });
+    // An `update` defer belongs to the pressed message, and after showModal there is nothing to
+    // edit: the error goes privately to the presser as a follow-up.
+    if (mode === 'update' || mode === 'modal') {
+      await interaction.followUp({ embeds: [noticeEmbed(content)], flags: MessageFlags.Ephemeral });
+    } else await interaction.editReply({ content: null, embeds: [noticeEmbed(content)], components: [] });
   } catch (err) {
     ctx.logger.warn({ err }, 'could not deliver the error message');
   }
@@ -127,7 +159,7 @@ async function answerAfterDefer(interaction: Answerable, mode: DeferMode, conten
 
 async function privateReply(interaction: Answerable, content: string, ctx: AppContext): Promise<void> {
   try {
-    await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [noticeEmbed(content)], flags: MessageFlags.Ephemeral });
   } catch (err) {
     ctx.logger.warn({ err }, 'could not reply');
   }

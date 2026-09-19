@@ -10,7 +10,11 @@ describe('env', () => {
     expect(env.DISCORD_CLIENT_ID).toBeUndefined();
     expect(env.DISCORD_GUILD_ID).toBeUndefined();
     expect(env.LOG_LEVEL).toBe('info');
-    expect(env.NODE_ENV).toBe('development');
+  });
+
+  it('an unset NODE_ENV is production; development only when said', () => {
+    expect(parseEnv(base).NODE_ENV).toBe('production');
+    expect(parseEnv({ ...base, NODE_ENV: 'development' }).NODE_ENV).toBe('development');
   });
 
   it('treats empty optional lines in .env as unset', () => {

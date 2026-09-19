@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeCustomId, encodeCustomId, intArg, MAX_CUSTOM_ID_LENGTH, snowflakeArg } from './customId.js';
+import { decodeCustomId, encodeCustomId, intArg, MAX_CUSTOM_ID_LENGTH, snowflakeArg, versionArg } from './customId.js';
 
 describe('customId codec', () => {
   it('round-trips an action with id arguments', () => {
@@ -31,6 +31,37 @@ describe('customId codec', () => {
     expect(() => encodeCustomId('hist', 'a:b')).toThrow();
     expect(() => encodeCustomId('hist', 'Команда A')).toThrow();
     expect(() => encodeCustomId('x', 1)).toThrow();
+  });
+
+  it('fits every matches action at its longest arguments (decision 008)', () => {
+    const id = 2_147_483_647;
+    const v = 2_147_483_647;
+    const snowflake = '12345678901234567890';
+    const longest = [
+      encodeCustomId('mcfm', id, v, 'D', snowflake),
+      encodeCustomId('mmvp', id, v, 'D'),
+      encodeCustomId('mwin', id, v, 'A'),
+      encodeCustomId('mccf', id, v),
+      encodeCustomId('mcan', id, v),
+      encodeCustomId('mtok', id, v),
+      encodeCustomId('mspc', id, 1),
+      encodeCustomId('mteam', id),
+      encodeCustomId('mtest', id),
+      encodeCustomId('mleave', id),
+      encodeCustomId('mnewf'),
+      encodeCustomId('svc', 'n'),
+      encodeCustomId('smove'),
+      encodeCustomId('stmo'),
+    ];
+    for (const raw of longest) expect(decodeCustomId(raw)).not.toBeNull();
+    expect(decodeCustomId(encodeCustomId('mcfm', 7, 0, 'B', '0'))).toEqual({ action: 'mcfm', args: ['7', '0', 'B', '0'] });
+  });
+
+  it('reads a version of 0 (a fresh match) but not a negative or padded one', () => {
+    expect(versionArg('0')).toBe(0);
+    expect(versionArg('12')).toBe(12);
+    expect(versionArg('-1')).toBeNull();
+    expect(versionArg('01')).toBeNull();
   });
 
   it('parses typed arguments strictly', () => {
