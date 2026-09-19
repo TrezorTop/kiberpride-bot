@@ -40,6 +40,8 @@ const DOMAIN_ERROR_TEXT: Record<DomainErrorCode, string> = {
   ROOM_FULL: 'В комнату больше нельзя добавить гостей.',
   INVALID_TARGET: 'Себя и ботов добавить нельзя 🙂 Выбери других игроков.',
   NOT_A_MEMBER: 'Этого игрока там уже нет — открой панель заново.',
+  ROLE_NOT_GRANTABLE:
+    'Права нельзя выдать роли @everyone и служебным ролям (боты, бустеры, интеграции) — выбери обычные роли сервера. Ничего не изменилось.',
 };
 
 /** Why a clan or room name was refused (NameProblem, modules/shop/names.ts). */

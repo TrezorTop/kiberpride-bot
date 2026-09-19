@@ -1,8 +1,9 @@
 // /настройки-магазина — the shop's own settings screen (decision 016): the media channels, the room
-// category, the clan anchor role, switching goods on and off. Shown in the command list only to
-// members with Manage Server; the right that counts is SETTINGS_MANAGE, checked here and again in
-// the shop service on every change.
-import { InteractionContextType, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+// category, the clan anchor role, switching goods on and off. `default_member_permissions = 0`
+// keeps it out of every list but an Administrator's (owner, 2026-09-20, tightening 016 §2's Manage
+// Server); the right that counts is SETTINGS_MANAGE, checked here and again in the shop service on
+// every change.
+import { InteractionContextType, SlashCommandBuilder } from 'discord.js';
 import { DomainError } from '../../core/errors.js';
 import { Capability } from '../../modules/permissions/service.js';
 import { actorOf } from '../member.js';
@@ -14,7 +15,7 @@ export const shopSettingsCommand: CommandRoute = {
     .setName('настройки-магазина')
     .setDescription('Настройки магазина: каналы, категория комнат, роль для кланов, товары')
     .setContexts(InteractionContextType.Guild)
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setDefaultMemberPermissions(0n)
     .toJSON(),
 
   async run(interaction, ctx) {

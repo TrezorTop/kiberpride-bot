@@ -7,7 +7,7 @@ import { createEconomyService } from '../../../src/modules/economy/service.js';
 import { createGamesService } from '../../../src/modules/games/service.js';
 import type { LoggingService } from '../../../src/modules/logging/service.js';
 import { createMatchesService, type MatchesService } from '../../../src/modules/matches/service.js';
-import { createPermissionsService, dbCapabilitySource, dbRoleSource, type MemberFacts } from '../../../src/modules/permissions/service.js';
+import { createPermissionsService, dbPermissionSources, type MemberFacts } from '../../../src/modules/permissions/service.js';
 import { createRewardsService } from '../../../src/modules/rewards/service.js';
 import { createSettingsService } from '../../../src/modules/settings/service.js';
 import { FakeGateway } from '../../fakes/gateway.js';
@@ -87,7 +87,7 @@ export async function harness(options: { autoSync?: boolean; nodeEnv?: string; r
     economy: createEconomyService(db),
     rewards: createRewardsService(db),
     games: createGamesService(db),
-    permissions: createPermissionsService(dbCapabilitySource(db), dbRoleSource(db)),
+    permissions: createPermissionsService(dbPermissionSources(db)),
     settings,
     logging,
     gateway,

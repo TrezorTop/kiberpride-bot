@@ -35,6 +35,8 @@ export const DOMAIN_ERROR_CODES = [
   'ROOM_FULL',
   'INVALID_TARGET',
   'NOT_A_MEMBER',
+  // Rights (/права)
+  'ROLE_NOT_GRANTABLE',
 ] as const;
 
 export type DomainErrorCode = (typeof DOMAIN_ERROR_CODES)[number];

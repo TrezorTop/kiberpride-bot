@@ -2,6 +2,7 @@
 import type { AnySelectMenuInteraction } from 'discord.js';
 import type { ComponentRoute } from '../router.js';
 import { mvpSelect, openMatchSelect, removePlayerSelect, teamPickerSelect } from './matches.js';
+import { capabilitySelect, rightRolesSelect } from './rights.js';
 import { recruitChannelSelect, recruitTimeoutSelect, voiceCategorySelect } from './settings.js';
 import {
   accessChannelsSelect,
@@ -24,6 +25,9 @@ export const selects: ReadonlyMap<string, ComponentRoute<AnySelectMenuInteractio
   ['ssrc', recruitChannelSelect],
   ['svc', voiceCategorySelect],
   ['stmo', recruitTimeoutSelect],
+  // Rights (/права)
+  ['rcap', capabilitySelect],
+  ['rrol', rightRolesSelect],
   // Shop and earnings (decision 014 §7, §10; 015)
   ['shsel', goodSelect],
   ['cladd', clanAddSelect],
