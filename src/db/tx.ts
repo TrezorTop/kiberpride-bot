@@ -67,5 +67,6 @@ function sqlState(err: unknown): string | undefined {
   const meta = err.meta;
   const cause = (meta?.driverAdapterError as { cause?: Record<string, unknown> } | undefined)?.cause;
   const candidates = [cause?.originalCode, cause?.code, meta?.code];
-  return candidates.find((c): c is string => typeof c === 'string' && /^\d{5}$/.test(c));
+  // SQLSTATEs are five characters of [0-9A-Z]: «40P01» (deadlock) is not all digits.
+  return candidates.find((c): c is string => typeof c === 'string' && /^[0-9A-Z]{5}$/.test(c));
 }

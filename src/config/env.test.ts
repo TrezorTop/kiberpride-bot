@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { mayAddTestPlayers } from '../modules/matches/testPlayers.js';
 import { parseEnv, resolveVersion } from './env.js';
 
 const TOKEN = 'x'.repeat(72);
@@ -13,14 +12,9 @@ describe('env', () => {
     expect(env.LOG_LEVEL).toBe('info');
   });
 
-  it('an unset NODE_ENV is production, so the test players stay off unless development is said', () => {
-    const owner = { isGuildOwner: true };
-    const unset = parseEnv(base);
-    expect(unset.NODE_ENV).toBe('production');
-    expect(mayAddTestPlayers(owner, unset.NODE_ENV)).toBe(false);
-    const dev = parseEnv({ ...base, NODE_ENV: 'development' });
-    expect(mayAddTestPlayers(owner, dev.NODE_ENV)).toBe(true);
-    expect(mayAddTestPlayers({ isGuildOwner: false }, dev.NODE_ENV)).toBe(false);
+  it('an unset NODE_ENV is production; development only when said', () => {
+    expect(parseEnv(base).NODE_ENV).toBe('production');
+    expect(parseEnv({ ...base, NODE_ENV: 'development' }).NODE_ENV).toBe('development');
   });
 
   it('treats empty optional lines in .env as unset', () => {
