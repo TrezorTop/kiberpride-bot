@@ -64,6 +64,11 @@ Filed, due 2026-10-04 unless a line says otherwise:
 - (d) Move settings rights into the service. This is due before the §7 admin panel step begins.
 - (e) Add db tests for the timeout racing the last join, and for a join by a player who is
   already signed up when one seat is left.
+- (f) From the second review, 2026-09-20: a sync that fails for good is retried forever. It needs
+  a backoff or a terminal «channel gone» handling (`src/jobs/README.md`).
+- (g) Add a db test for the User-lock path of 011. Player X joins a third recruitment at the
+  same moment their match starts. The result must be BUSY_IN_MATCH or a logged withdrawal,
+  never X signed up while playing.
 
 Product note: «one started match at a time» (009 §2) was only checked when a player joined. The
 owner settled it the same day in decision 011: the bot now withdraws a player from their other

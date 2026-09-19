@@ -73,7 +73,9 @@ updates the counter, notifies if configured, and a player cannot join twice.
   then says «⭐ Особый матч — награды ×2»), and cancel with a confirmation.
 - **One started match at a time:** a player in a match that has started cannot join another
   recruitment until it ends («Ты сейчас в матче — дождись его конца…»). Several open sign-ups at
-  once are allowed.
+  once are allowed, but the moment one of the player's matches starts, the bot withdraws them
+  from their other recruitments (decision 011): the seat frees up at once, and a recruitment whose
+  roster was already full reopens.
 - An unfilled recruitment older than the timeout is **cancelled automatically**; the players are
   pinged and the log channel says «набор закрыт по времени».
 - For tests only (never on the live server): the guild owner sees `🧪 Добавить тестовых игроков`,

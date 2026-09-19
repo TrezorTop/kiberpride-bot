@@ -28,5 +28,7 @@ should be an embed.
   009 §4.
 
 ## Consequences
-Every new screen goes through the brand helper. A unit test checks the colour of every view the
-tests can build.
+Every new screen goes through the brand helper. Today the unit tests check the colour of the brand
+helpers and of every announcement. A test that loops over every exported view is filed, due
+2026-10-04; until then a `setColor` outside `style.ts` is caught only by review. Grep shows none
+today.
