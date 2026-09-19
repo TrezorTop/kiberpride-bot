@@ -5,14 +5,6 @@ plain language, the agent's recommendation, and what the bot does meanwhile. Ask
 **only when the work reaches the question**, one at a time, in Russian, as options (rule
 `plain-language` §4). A settled question moves to a decision record and is deleted here.
 
-## Q1. Does bought access expire?
-
-Image and GIF access: forever after one purchase, or for a period (say 30 days) and then bought
-again? Forever is simpler and feels generous; a period makes KP keep circulating and gives the
-shop a reason to exist after everyone has bought once. **Recommendation:** a period, configurable
-per good, 30 days by default; the bot warns the player a day before it ends.
-**Meanwhile:** the good has a validity field; the first release treats an empty value as forever.
-
 ## Q2. A player leaves the server mid-match
 
 Their reward: paid anyway (they played), withheld, or decided by the organiser at finish?
@@ -47,5 +39,4 @@ machine for tests only.
 
 ---
 
-Last verified: 2026-09-19 (Q7 settled → decision 006; Q8–Q12 raised by decision 008 and settled
-by the owner the same day → decision 009).
+Last verified: 2026-09-20 (Q1 settled → decision 013; earlier: Q7 → 006, Q8–Q12 → 009).

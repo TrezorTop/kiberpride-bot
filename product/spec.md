@@ -31,8 +31,13 @@ Every KP movement is recorded: who, how much, kind, source, description, time, a
 purchase it relates to. Example lines: `+100 KP Coin — победа в CS2`, `+50 KP Coin — MVP`,
 `-500 KP Coin — доступ к GIF`. The history is the audit trail of the economy.
 
-Planned later, so the design must leave room: daily reward, activity bonuses, tasks, achievements,
-transfers between users, leaderboards, cases, more KP sources.
+**Earnings besides matches (decision 013):** a **daily bonus** of 50 KP Coin, claimed by the player
+once per calendar day (Moscow time); **voice time** — 10 KP Coin per full hour in a voice channel,
+at most 60 a day, counted only when the player is not alone, not deafened and not in the AFK
+channel. Amounts are configuration.
+
+Planned later, so the design must leave room: activity bonuses, tasks, achievements, transfers
+between users, leaderboards, cases, more KP sources.
 
 ## 2. Shop
 
@@ -43,9 +48,18 @@ of such goods must grow easily.
 A good has: name, description, price, kind, what it grants, validity period, on/off switch. All
 of it is configuration.
 
-**Personal roles are NOT in scope now**, but the shop must be able to sell later: a personal or
-custom role, a role colour, a temporary role, a cosmetic item, access to a feature. So goods are
-an abstract kind with a handler per kind.
+Goods are an abstract kind with a handler per kind, so more can be sold later: a role colour, a
+temporary role, a cosmetic item, access to a feature.
+
+**First-release goods (decision 013)** — every good lasts **30 days**, the bot warns a day before
+the end and takes the grant back at the end; buying again while active extends by 30 days:
+
+| Good | Price | What it grants |
+|---|---|---|
+| Доступ к изображениям | 3 000 KP Coin | sending images in the channels the admin picked in the settings |
+| Доступ к GIF | 5 000 KP Coin | sending GIFs in the channels the admin picked in the settings |
+| Клановая роль | 15 000 KP Coin | a role the buyer names and colours, and gives to up to 10 clan members |
+| Личная комната | 10 000 KP Coin | the buyer's own voice channel: who may enter, its name, a user limit |
 
 ## 3. Game activities and recruitment
 
@@ -152,7 +166,8 @@ Profile: balance, matches played, wins, losses, MVP count, per-game stats, achie
 ## 10. First release (MVP)
 
 **Economy:** KP Coin, balance, history, the shop, buying image access and GIF access, granting
-and revoking the matching Discord permission through roles.
+and revoking the matching Discord permission through roles; the clan role and the personal room;
+the daily bonus and voice-time earnings (decision 013).
 
 **Recruitment:** create an activity, the recruitment channel, join button, counter and limit,
 automatic close, two voice channels, random teams, manual teams, finish, winner, MVP, KP payout,
@@ -162,6 +177,6 @@ Nothing from §9 is built in the first release; the extension points are left cl
 
 ---
 
-Last verified: 2026-09-20 (§3–§5 «as built» notes added with the matches step, decisions 008 and
-009 — checked by the automated suite, not yet walked on the test server; earlier: amounts shown
-as «KP Coin», decision 005; test server first, decision 006).
+Last verified: 2026-09-20 (§1, §2, §10: shop prices, 30-day goods, clan role, personal room,
+daily bonus, voice time — decision 013; §3–§5 walked by the owner on the test server; earlier:
+«KP Coin», decision 005; test server first, decision 006).
