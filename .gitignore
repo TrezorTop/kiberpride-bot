@@ -12,6 +12,7 @@ id_rsa*
 # toolchain
 node_modules/
 dist/
+src/generated/
 coverage/
 *.log
 .DS_Store

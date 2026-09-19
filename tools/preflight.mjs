@@ -57,6 +57,10 @@ if (!hasSrc) {
 } else {
   if (!existsSync(resolve(root, '.env'))) lines.push('Нет файла .env — токен бота не задан; runbooks/discord-app-setup.md §2.');
   if (missing.length === 0 && sh('node --version') === null) lines.push('Node.js не найден в PATH.');
+  // Installed but not running: the db tests and the local database need the Docker engine.
+  if (!missing.includes('docker') && sh('docker info --format "{{.ServerVersion}}"', { timeout: 15000 }) === null) {
+    lines.push('Docker не запущен — без него не работают база и проверки (npm run check); запусти Docker Desktop (агент может сам: start "" "C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe").');
+  }
 }
 
 // 4. Open product questions — a count, so the lead asks them when the work arrives there.

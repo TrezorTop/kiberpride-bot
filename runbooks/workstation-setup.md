@@ -50,6 +50,21 @@ on the page it opens — same one sentence.
 `node tools/preflight.mjs` prints nothing about a missing toolchain; `docker run --rm
 hello-world` succeeds; `gh auth status` is logged in.
 
+## 6. Local databases, the gate, a local run
+
+Node may be missing from the agent's shell `PATH` right after install: prepend
+`C:\Program Files\nodejs` (and `C:\Program Files\Docker\Docker\resources\bin` for docker).
+
+```bash
+npm ci && npx prisma generate      # after every pull that touched package.json or prisma/
+npm run db:up                      # docker-compose.dev.yml: postgres :5432 (dev), postgres-test :5433 (tests)
+npm run check                      # typecheck + lint + unit + db tests; the db tests FAIL without postgres-test
+npx prisma migrate deploy && npm run db:seed   # the dev database, once and after new migrations
+npm run dev                        # the bot against the test Discord server
+```
+
+The preflight says in one line when Docker Desktop is installed but not running.
+
 ---
 
 Last verified: 2026-09-19 (written; not yet run on the owner's machine — the first run updates

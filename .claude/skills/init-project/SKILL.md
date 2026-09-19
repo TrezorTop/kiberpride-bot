@@ -35,15 +35,16 @@ run has somewhere to go). Skip §3 until the scaffold exists.
 2. Delegate to the **builder**: scaffold per the records — `package.json` with scripts `dev`,
    `build`, `check` (typecheck + lint + test), `migrate:deploy`, `invite-link`; TypeScript
    strict; discord.js v14; Prisma with the ruled schema and a first migration; pino; Vitest;
-   ESLint + Prettier; `docker-compose.yml` (bot + postgres, health checks, `restart:
-   unless-stopped`); `Dockerfile`; `deploy/` per `runbooks/deploy.md`; `.env.example` with
+   ESLint + Prettier; `deploy/docker-compose.yml` (bot + postgres, health checks, `restart:
+   unless-stopped`) and `docker-compose.dev.yml` (local and test databases); `Dockerfile`; `deploy/` per `runbooks/deploy.md`; `.env.example` with
    every variable name; a `src/<module>/README.md` per module (five lines: what it owns, its
    service interface, its extension point); a GitHub Actions workflow running `npm run check`
    on pull requests. First functionality: the bot logs in, registers `/баланс` and `/профиль`
    for the test guild, posts the heartbeat to a log channel it creates if missing, and
    `npm run check` is green with at least one real test (the KP transaction idempotency).
 3. `runbooks/discord-app-setup.md` §3: the invite link (**OWNER** clicks it once and picks the
-   test server). Start the bot locally (`docker compose up -d postgres`, `npm run dev`); use
+   test server). Start the bot locally (`npm run db:up`, `npx prisma migrate deploy`,
+   `npm run db:seed`, `npm run dev`); use
    `/баланс` yourself is impossible — ask the owner to press it once on the test server and
    confirm they saw «💰 0 KP». That confirmation is the first product moment; make it visible.
 

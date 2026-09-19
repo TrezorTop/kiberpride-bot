@@ -1,0 +1,54 @@
+# The server: bot + PostgreSQL (decision 001 §6, runbooks/deploy.md). Always run through
+# deploy/compose.sh, which passes the repository-root .env and bakes APP_VERSION.
+# No test database here — that lives only in docker-compose.dev.yml on the workstation.
+name: kiberpride-bot
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kiber
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in /opt/kiberpride-bot/.env}
+      POSTGRES_DB: kiberpride
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U kiber -d kiberpride']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # No published port: only the bot reaches the database, over the compose network.
+
+  bot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+    image: kiberpride-bot:${APP_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    environment:
+      # Built here from POSTGRES_PASSWORD so the two can never disagree.
+      DATABASE_URL: postgresql://kiber:${POSTGRES_PASSWORD}@postgres:5432/kiberpride
+      NODE_ENV: production
+      APP_VERSION: ${APP_VERSION:-dev}
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '5'
+
+volumes:
+  pgdata:

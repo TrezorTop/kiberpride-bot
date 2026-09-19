@@ -1,0 +1,110 @@
+// One firing test per hand-written constraint of the init migration (decision 003): the partial
+// unique indexes and CHECKs Prisma cannot express. Each asserts WHICH constraint fired, so a test
+// that passes because of an unrelated error (a missing column, a foreign key) is not possible.
+// Plain `pg` here, not Prisma: its DatabaseError carries `code` and `constraint` directly.
+import pg from 'pg';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { TEST_DATABASE_URL } from './env.js';
+
+const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL, max: 2 });
+afterAll(() => pool.end());
+
+const UNIQUE = '23505';
+const CHECK = '23514';
+const USER = '300000000000000001';
+
+async function sql(text: string, values: unknown[] = []): Promise<void> {
+  await pool.query(text, values);
+}
+
+/** Runs the statement and returns what Postgres refused it with; fails the test if it succeeded. */
+async function refusal(text: string, values: unknown[] = []): Promise<{ code: string; constraint: string | undefined }> {
+  const error = await pool.query(text, values).then(
+    () => null,
+    (err: unknown) => err,
+  );
+  if (!(error instanceof pg.DatabaseError)) throw new Error(`expected a database refusal, got ${String(error)}`);
+  return { code: error.code ?? '', constraint: error.constraint };
+}
+
+let gameId: number;
+let goodId: number;
+
+beforeEach(async () => {
+  await sql(`INSERT INTO "User" ("id") VALUES ($1)`, [USER]);
+  const game = await pool.query<{ id: number }>(
+    `INSERT INTO "Game" ("slug", "name", "emoji", "defaultTeamSize") VALUES ('cs2', 'CS2', '🎮', 5) RETURNING "id"`,
+  );
+  gameId = game.rows[0]!.id;
+  const good = await pool.query<{ id: number }>(
+    `INSERT INTO "ShopGood" ("slug", "name", "description", "price", "kind", "config")
+     VALUES ('gif', 'Доступ к GIF', 'GIF в чате', 500, 'discord_permission', '{}') RETURNING "id"`,
+  );
+  goodId = good.rows[0]!.id;
+});
+
+const insertPurchase = (status: string) =>
+  `INSERT INTO "Purchase" ("userId", "goodId", "pricePaid", "status") VALUES ('${USER}', $1, 500, '${status}')`;
+
+const insertMatch = `
+  INSERT INTO "Match" ("gameId", "title", "teamSize", "capacity", "participantCount", "teamMode",
+                       "createdById", "recruitChannelId", "voiceCategoryId", "rewards")
+  VALUES ($1, 'Матч', $2, $3, $4, 'AUTO', '${USER}', '1', '2', '{}')`;
+
+describe('Purchase_one_active_per_user_good', () => {
+  it('refuses a second ACTIVE purchase of the same good by the same user', async () => {
+    await sql(insertPurchase('ACTIVE'), [goodId]);
+    expect(await refusal(insertPurchase('ACTIVE'), [goodId])).toEqual({ code: UNIQUE, constraint: 'Purchase_one_active_per_user_good' });
+  });
+
+  it('allows an ACTIVE purchase next to an EXPIRED one', async () => {
+    await sql(insertPurchase('EXPIRED'), [goodId]);
+    await sql(insertPurchase('ACTIVE'), [goodId]);
+    const count = await pool.query<{ n: string }>(`SELECT count(*) AS n FROM "Purchase"`);
+    expect(count.rows[0]!.n).toBe('2');
+  });
+});
+
+describe('RewardRule_event_default_key', () => {
+  it('refuses a second default rule (gameId NULL) for the same event', async () => {
+    await sql(`INSERT INTO "RewardRule" ("event", "gameId", "amount") VALUES ('WIN', NULL, 100)`);
+    expect(await refusal(`INSERT INTO "RewardRule" ("event", "gameId", "amount") VALUES ('WIN', NULL, 150)`)).toEqual({
+      code: UNIQUE,
+      constraint: 'RewardRule_event_default_key',
+    });
+  });
+});
+
+describe('KpTransaction_amount_nonzero', () => {
+  it('refuses a ledger row of 0 KP', async () => {
+    const zero = `INSERT INTO "KpTransaction" ("userId", "amount", "balanceAfter", "kind", "reference", "description")
+                  VALUES ('${USER}', 0, 0, 'ADMIN_ADJUST', 'admin:zero', 'ноль')`;
+    expect(await refusal(zero)).toEqual({ code: CHECK, constraint: 'KpTransaction_amount_nonzero' });
+  });
+});
+
+describe('ShopGood_price_positive', () => {
+  it('refuses a good priced at 0 KP', async () => {
+    const free = `INSERT INTO "ShopGood" ("slug", "name", "description", "price", "kind", "config")
+                  VALUES ('free', 'Даром', 'даром', 0, 'discord_permission', '{}')`;
+    expect(await refusal(free)).toEqual({ code: CHECK, constraint: 'ShopGood_price_positive' });
+  });
+});
+
+describe('Match CHECKs', () => {
+  it('accepts a well-formed 5×5 match (the baseline the refusals below differ from)', async () => {
+    await sql(insertMatch, [gameId, 5, 10, 10]);
+  });
+
+  it('Match_teamSize_range: refuses a team of 11', async () => {
+    expect(await refusal(insertMatch, [gameId, 11, 22, 0])).toEqual({ code: CHECK, constraint: 'Match_teamSize_range' });
+  });
+
+  it('Match_capacity_twice_teamSize: refuses capacity other than 2 × teamSize', async () => {
+    expect(await refusal(insertMatch, [gameId, 5, 9, 0])).toEqual({ code: CHECK, constraint: 'Match_capacity_twice_teamSize' });
+  });
+
+  it('Match_participantCount_range: refuses more participants than capacity', async () => {
+    expect(await refusal(insertMatch, [gameId, 5, 10, 11])).toEqual({ code: CHECK, constraint: 'Match_participantCount_range' });
+  });
+});
