@@ -15,11 +15,14 @@ export function normalizeName(raw: string): string {
 // Letters, digits, spaces, `-_.!?` and emoji (with their joiners, variation selectors, skin
 // tones, flags and keycaps). Everything else — `@ # : \`` included — is refused.
 const ALLOWED = /^(?:[\p{L}\p{M}\p{N} _.!?-]|\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|‍|️|⃣)+$/u;
+// …and something visible (017 §2): a name of joiners, variation selectors, combining marks or
+// punctuation alone would show as nothing. Flag letters count: «🇷🇺🇷🇺» is a visible name.
+const VISIBLE = /[\p{L}\p{N}\p{Extended_Pictographic}\p{Regional_Indicator}]/u;
 const LINK = /(?:discord\s*\.\s*gg|discord(?:app)?\s*\.\s*com|www\s*\.|[\p{L}\p{N}-]+\s*\.\s*(?:com|ru|gg|net|org|io|me|su|xyz|tv|рф)(?![\p{L}\p{N}]))/iu;
 const RESERVED = new Set(['everyone', 'here']);
 
 export interface NameRules {
-  /** Lower-cased substrings a clan name may not contain. */
+  /** Words no word of a clan name may start with, any case (017 §4). */
   forbiddenWords?: readonly string[];
   /** Role names already on the server; a clan may not look like one of them. */
   roleNames?: readonly string[];
@@ -29,11 +32,21 @@ export interface NameRules {
 export function nameProblem(name: string, rules: NameRules = {}): NameProblem | null {
   const length = [...name].length;
   if (length < NAME_MIN || length > NAME_MAX) return 'length';
-  if (!ALLOWED.test(name)) return 'chars';
+  if (!ALLOWED.test(name) || !VISIBLE.test(name)) return 'chars';
   if (LINK.test(name)) return 'link';
   const lower = name.toLocaleLowerCase('ru');
   if (RESERVED.has(lower)) return 'reserved';
   if (rules.roleNames?.some((r) => r.toLocaleLowerCase('ru') === lower)) return 'role_taken';
-  if (rules.forbiddenWords?.some((w) => w.length > 0 && lower.includes(w.toLocaleLowerCase('ru')))) return 'forbidden';
+  if (rules.forbiddenWords?.some((w) => w.length > 0 && startsAWord(lower, w.toLocaleLowerCase('ru')))) return 'forbidden';
   return null;
+}
+
+// Forbidden words match at the start of a word only (017 §4): «бот» must not block «Работа» or
+// «Суббота». So «Админы», «ModSquad», «Супер Админы» are refused — and «Modern» too; a word glued
+// on after a letter («ТопАдмин») is not — the log of names and renames covers that.
+function startsAWord(lower: string, word: string): boolean {
+  for (let at = lower.indexOf(word); at !== -1; at = lower.indexOf(word, at + 1)) {
+    if (at === 0 || !/\p{L}/u.test(String.fromCodePoint(lower.codePointAt(at - 1) ?? 0))) return true;
+  }
+  return false;
 }
