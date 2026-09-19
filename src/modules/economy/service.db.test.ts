@@ -1,7 +1,7 @@
 // economy.move against a real Postgres (decisions 002 §8, 003 §4). These tests are what makes
 // «a reward cannot be paid twice» and «a balance never goes negative» true, not the code.
 import { describe, expect, it } from 'vitest';
-import type { DomainError } from '../../core/errors.js';
+import { isDomainError, type DomainError } from '../../core/errors.js';
 import { isCheckViolation, withTx } from '../../db/tx.js';
 import { testDb } from '../../../tests/db/helpers.js';
 import { createEconomyService, TxKind, type MoveInput } from './service.js';
@@ -90,6 +90,32 @@ describe('economy.move', () => {
     const s = await state();
     expect(s.rows).toHaveLength(0);
     expect(s.balance ?? 0).toBe(0);
+  });
+
+  it('refuses a reused reference that carries a different fact, and moves nothing', async () => {
+    const economy = createEconomyService(testDb());
+    await economy.move(credit('match:3:win:x', 100));
+
+    const mismatches: MoveInput[] = [
+      credit('match:3:win:x', 50), // amount
+      { ...credit('match:3:win:x', 100), kind: TxKind.MATCH_WIN }, // kind
+      { ...credit('match:3:win:x', 100), userId: '300000000000000002' }, // user
+    ];
+    for (const input of mismatches) {
+      const error = await economy.move(input).then(
+        () => null,
+        (err: unknown) => err,
+      );
+      expect(error).toBeInstanceOf(Error);
+      expect(isDomainError(error)).toBe(false);
+      expect(String(error)).toContain('match:3:win:x');
+    }
+
+    // The exact same fact is still the ordinary idempotent no-op.
+    expect((await economy.move(credit('match:3:win:x', 100))).applied).toBe(false);
+    const s = await state();
+    expect(s.rows).toHaveLength(1);
+    expect(s.balance).toBe(100);
   });
 
   it('keeps history newest first', async () => {

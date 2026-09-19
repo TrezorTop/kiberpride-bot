@@ -45,11 +45,6 @@ amount is acceptable, and who pays — the owner personally or the community? As
 first release runs locally and is ready to go live. **Meanwhile:** the bot runs on the owner's
 machine for tests only.
 
-## Q7. Test server before the real one
-
-The agent recommends a private test Discord server for every check before anything reaches the
-real KiberPride server. Asked at `/init-project`. **Meanwhile:** assumed yes.
-
 ---
 
-Last verified: 2026-09-19.
+Last verified: 2026-09-19 (Q7 settled → decision 006).

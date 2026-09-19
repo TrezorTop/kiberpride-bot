@@ -1,6 +1,6 @@
 # 002. Module layout — domain modules behind ports, a thin Discord adapter, stateless custom_ids, tests on a real Postgres
 
-**Status:** accepted
+**Status:** accepted; §3 and §6 amended by 007
 **Date:** 2026-09-19
 **Decided by:** architect (technical)
 

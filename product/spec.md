@@ -20,15 +20,16 @@ in one place; what each role may do is configuration, not code.
 
 ## 1. Economy — KP Coin
 
-Currency name `KP Coin`, short `KP`, shown as `💰 1 250 KP`. Every user has a balance.
+Currency name `KP Coin`, shown in full after every amount: `💰 1 250 KP Coin` (decision 005).
+Every user has a balance.
 
 A user can: see their balance and profile, see their operation history, buy in the shop, receive
 rewards, earn KP from game activity. Commands `/баланс`, `/магазин`, `/профиль` (Russian names
 allowed).
 
 Every KP movement is recorded: who, how much, kind, source, description, time, and the match or
-purchase it relates to. Example lines: `+100 KP — победа в CS2`, `+50 KP — MVP`,
-`-500 KP — доступ к GIF`. The history is the audit trail of the economy.
+purchase it relates to. Example lines: `+100 KP Coin — победа в CS2`, `+50 KP Coin — MVP`,
+`-500 KP Coin — доступ к GIF`. The history is the audit trail of the economy.
 
 Planned later, so the design must leave room: daily reward, activity bonuses, tasks, achievements,
 transfers between users, leaderboards, cases, more KP sources.
@@ -121,4 +122,5 @@ Nothing from §9 is built in the first release; the extension points are left cl
 
 ---
 
-Last verified: 2026-09-19 (derived from the owner's brief; no product decision changed yet).
+Last verified: 2026-09-19 (owner: amounts shown as «KP Coin», decision 005; test server first,
+decision 006; `/баланс` answered «💰 0 KP» on the test server before 005 was applied).

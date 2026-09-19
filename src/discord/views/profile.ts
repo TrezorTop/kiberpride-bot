@@ -28,7 +28,7 @@ export function profileView(data: ProfileData): { embeds: EmbedBuilder[]; compon
       { name: 'Баланс', value: formatKp(data.balance) },
       {
         name: 'Последние операции',
-        value: lines.length > 0 ? lines.join('\n') : 'Пока пусто — сыграй матч, чтобы заработать первые KP 🎮',
+        value: lines.length > 0 ? lines.join('\n') : 'Пока пусто — сыграй матч, чтобы заработать первые KP Coin 🎮',
       },
     );
   if (data.avatarUrl) embed.setThumbnail(data.avatarUrl);

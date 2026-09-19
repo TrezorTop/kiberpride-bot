@@ -11,9 +11,13 @@ short sha as `APP_VERSION` into the image.
 `/opt/kiberpride-bot/.env` is written once by the agent over SSH (`ssh kiberpride 'cat >
 /opt/kiberpride-bot/.env' < .env.server`, where `.env.server` is a local ignored file), mode
 `600`, owner `kiber`. Names as in `.env.example`; on the server it needs `DISCORD_TOKEN`,
-`POSTGRES_PASSWORD` (a long random string the agent generates) and `LOG_LEVEL=info`.
+`POSTGRES_PASSWORD` and `LOG_LEVEL=info`.
 `DATABASE_URL` is NOT needed there: `deploy/docker-compose.yml` builds it from
-`POSTGRES_PASSWORD`. `DISCORD_GUILD_ID` stays empty while the bot is in exactly one server
+`POSTGRES_PASSWORD`. Because the password is spliced into that URL, generate it URL-safe:
+`openssl rand -hex 32` (hex only; no `@ : / ? #` to break the URL). Postgres applies
+`POSTGRES_PASSWORD` only when its data volume is first created: changing it later in `.env`
+does nothing to the database — change it with `ALTER USER` inside the running database first,
+then in `.env`, then restart. `DISCORD_GUILD_ID` stays empty while the bot is in exactly one server
 (it serves the one it is in); set it to the REAL server's id only if the bot is ever in two.
 
 ## What the container does on start
@@ -45,6 +49,9 @@ ssh kiberpride 'cd /opt/kiberpride-bot && sh deploy/compose.sh up -d --build'
    - the Discord log channel `kp-логи` shows the heartbeat «✅ Бот запущен · версия X» — the
      same `heartbeat` line with the version is in the process log; ask the owner to glance
      only if both are missing.
+   - A bot that fails its guild setup, or has no Discord connection for over 5 minutes, exits
+     with code 1 on purpose and is restarted; its last log line ends with `exiting so the
+     process is restarted clean`. A restart loop with that line is the thing to read first.
 5. Backup after if there was a migration.
 6. `docs/for-owner/status.md`: what is live now, one dated line at the top.
 
@@ -61,5 +68,5 @@ Tell the owner in one sentence.
 
 ---
 
-Last verified: 2026-09-19 (aligned with `deploy/` and the Dockerfile as scaffolded; not yet run
-on a server — the first deploy updates it).
+Last verified: 2026-09-19 (aligned with `deploy/`, the Dockerfile and the exit-on-failure
+behaviour of `src/main.ts`; not yet run on a server — the first deploy updates it).

@@ -104,6 +104,15 @@ async function move(tx: Tx, input: MoveInput): Promise<MoveResult> {
   const claimed = inserted[0];
   if (!claimed) {
     const existing = await tx.kpTransaction.findUniqueOrThrow({ where: { reference: input.reference }, select: ledgerSelect });
+    // Same reference, different fact = a bug in the caller's reference scheme; a silent no-op
+    // would hide an unpaid reward. A plain Error, not a DomainError: no player can fix it.
+    if (existing.userId !== input.userId || existing.amount !== input.amount || existing.kind !== input.kind) {
+      throw new Error(
+        `economy.move: reference ${input.reference} already applied as ` +
+          `{userId ${existing.userId}, amount ${existing.amount}, kind ${existing.kind}}, ` +
+          `got {userId ${input.userId}, amount ${input.amount}, kind ${input.kind}}`,
+      );
+    }
     return { entry: existing, applied: false };
   }
 

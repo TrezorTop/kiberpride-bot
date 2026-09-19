@@ -9,7 +9,7 @@ export const NOT_READY = 'Я ещё просыпаюсь — попробуй ч
 export const HISTORY_SOON = 'Полная история скоро появится 🙂 Пока последние операции видны в /профиль.';
 
 const DOMAIN_ERROR_TEXT: Record<DomainErrorCode, string> = {
-  INSUFFICIENT_FUNDS: 'Не хватает KP 😔 Проверь баланс через /баланс — KP можно заработать в матчах.',
+  INSUFFICIENT_FUNDS: 'Не хватает KP Coin 😔 Проверь баланс через /баланс — KP Coin можно заработать в матчах.',
   NOT_ALLOWED: 'Это могут делать только организаторы и администраторы.',
   STALE_PANEL: 'Панель устарела — открой её заново.',
   MATCH_CLOSED: 'Набор уже закрыт — следи за следующими играми!',
