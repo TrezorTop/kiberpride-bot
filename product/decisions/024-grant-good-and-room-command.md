@@ -25,16 +25,22 @@ personal-room panel directly instead of going through `/магазин` or `/п�
    revokes (decision 023 §4).
 3. **Every hand-out is one line in the log channel** naming the administrator, the player, the
    good and the days.
-4. **`/моя-комната`** opens the personal-room panel («🏠 Моя комната») directly. The name avoids
-   `/комната`, which the owner's other bot on the same server already uses. The panel and its
-   rights are unchanged: only the room's owner sees it, and a player without a room is told where
-   to get one.
+4. **`/комната [игрок]`** opens the personal-room panel («🏠 Моя комната») directly. The owner
+   removed that command from their other bot, so the plain name is free.
+   - With no option it opens the caller's own room; a player without one is told where to get it.
+   - **With a player, it opens that player's room for an administrator** (the owner's answer:
+     «админу можно дать такие доступы»). The right is `SHOP_MANAGE`, the same one that hands out
+     and revokes goods, and it is checked in the service. An administrator can rename the room,
+     set its limit, lock or open it, and let guests in or remove them — the same panel the owner of
+     the room sees.
+   - Every change an administrator makes to someone else's room is one line in the log channel.
 
 ## Rejected
 - **Only the personal room (1б).** The owner wants the other two as well.
 - **A fixed 30 days (2а).** Not the owner's choice.
 - **Charging the player's balance.** A hand-out is a gift, not a purchase.
-- **`/комната`.** Taken by the other bot; two identical names in one server's command list.
+- **`/моя-комната`.** Proposed while the other bot still had `/комната`; the owner freed the name
+  instead.
 
 ## Consequences
 A handed-out good is indistinguishable from a bought one afterwards, except that its `pricePaid`
