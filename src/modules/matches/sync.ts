@@ -106,20 +106,27 @@ export function createSyncer(deps: SyncDeps) {
 
   /**
    * The recruit channel is the one id `sync` cannot re-create: it is NOT NULL and the match was
-   * created in it. When it no longer resolves here — deleted, or left behind in the guild the bot
-   * served before (2026-09-20) — there is nowhere to post and nothing to converge, so the match
-   * is marked as synced as it will ever be and left to a person to cancel from `/игры`.
+   * created in it. When it does not resolve here — deleted, left behind in the guild the bot
+   * served before (2026-09-20), or simply invisible to the bot because someone took View away —
+   * there is nowhere to post and nothing to converge, so this pass stops before any Discord work
+   * and says so once per (match, version).
+   *
+   * It does NOT stamp `syncedVersion` (review 2026-09-20): `NotFound` covers a 50001 on a channel
+   * in the served guild too, and that is repairable — give the bot View back and the match must
+   * catch up by itself. Stamping would take the match out of `unsynced()` and the minute job
+   * would never look at it again, freezing the message until a restart.
+   *
    * Only «NotFound» gives up: a missing PERMISSION must keep failing loudly (architect's ruling).
    */
-  async function recruitChannelGone(snap: MatchSnapshot): Promise<boolean> {
+  async function recruitChannelUnreachable(snap: MatchSnapshot): Promise<boolean> {
     if (!(await gateway.checkRecruitChannel(snap.recruitChannelId)).includes('NotFound')) return false;
     if (deps.failures.firstFor(snap.id, snap.version)) {
       await logging.failure(
-        'match.recruit_channel_gone',
+        'match.recruit_channel_unreachable',
         { matchId: snap.id, channelId: snap.recruitChannelId, version: snap.version, status: snap.status },
         isTerminal(snap.status)
           ? undefined // nothing for anyone to do about a match that is already over
-          : `⚠️ Матч #${snap.id}: канал набора больше не существует на этом сервере — отмени матч в «/игры».`,
+          : `⚠️ Матч #${snap.id}: бот не видит канал набора — верни боту доступ к каналу. Если канала больше нет, отмени матч в «/игры».`,
       );
     }
     return true;
@@ -130,10 +137,8 @@ export function createSyncer(deps: SyncDeps) {
     if (!read) return;
     const version = read.version;
 
-    if (await recruitChannelGone(read)) {
-      await db.$executeRaw`UPDATE "Match" SET "syncedVersion" = ${version} WHERE "id" = ${id} AND "syncedVersion" < ${version}`;
-      return;
-    }
+    // Left unsynced on purpose: the retry job keeps trying, so access given back repairs itself.
+    if (await recruitChannelUnreachable(read)) return;
 
     const channels = await syncVoice(read);
     const snap: MatchSnapshot = { ...read, voiceChannelAId: channels.A, voiceChannelBId: channels.B };

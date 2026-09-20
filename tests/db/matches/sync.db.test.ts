@@ -219,9 +219,9 @@ describe('sync retry (review 2026-09-20)', () => {
 });
 
 // The recruit channel is the one id sync cannot re-create. Left behind when the bot moved guild
-// (2026-09-20), it made every sync fail forever; it now gives up once and waits for a person.
-describe('a recruit channel that no longer exists here', () => {
-  it('stops the sync, says so once with what to do, and marks the match as synced as it can be', async () => {
+// (2026-09-20), it made every sync fail forever; it now stops the pass and says so once.
+describe('a recruit channel the bot cannot see', () => {
+  it('stops the sync and says once what to do, without touching Discord', async () => {
     const h = await harness();
     const id = await newMatch(h);
     await h.matches.sync(id);
@@ -232,20 +232,38 @@ describe('a recruit channel that no longer exists here', () => {
     await h.matches.sync(id);
 
     expect(h.gateway.renders).toHaveLength(rendersBefore); // nothing was posted anywhere
-    const gone = h.logging.events.filter((e) => e.name === 'match.recruit_channel_gone');
-    expect(gone).toHaveLength(1);
-    expect(gone[0]?.audit).toContain('/игры');
-
-    // Marked synced, so the minute job stops picking it up — there is nothing left to try.
-    const m = await db().match.findUniqueOrThrow({ where: { id } });
-    expect(m.syncedVersion).toBe(m.version);
-    expect(await h.matches.unsynced()).toEqual([]);
+    const said = h.logging.events.filter((e) => e.name === 'match.recruit_channel_unreachable');
+    expect(said).toHaveLength(1);
+    expect(said[0]?.audit).toContain('/игры');
 
     // A new version says it once more; the same version does not.
     await h.matches.sync(id);
     await h.matches.join(id, player(2));
     await h.matches.sync(id);
-    expect(h.logging.events.filter((e) => e.name === 'match.recruit_channel_gone')).toHaveLength(2);
+    expect(h.logging.events.filter((e) => e.name === 'match.recruit_channel_unreachable')).toHaveLength(2);
+  });
+
+  // Review 2026-09-20: «NotFound» is also what an admin denying the bot View produces (50001 in
+  // the served guild). That is repairable, so the match must stay on the retry job's list and
+  // catch up by itself — stamping syncedVersion here would freeze it until a restart.
+  it('stays unsynced, so the minute job repairs the match once the bot sees the channel again', async () => {
+    const h = await harness();
+    const id = await newMatch(h);
+    h.gateway.goneChannels.add(RECRUIT);
+    await h.matches.join(id, player(1));
+    await h.matches.sync(id);
+
+    const m = await db().match.findUniqueOrThrow({ where: { id } });
+    expect(m.syncedVersion).toBeLessThan(m.version);
+    expect(await h.matches.unsynced()).toContain(id);
+
+    h.gateway.goneChannels.delete(RECRUIT); // View given back
+    expect(await runSyncRetry({ matches: h.matches, logging: h.logging })).toContain(id);
+    await h.matches.idle();
+    const after = await db().match.findUniqueOrThrow({ where: { id } });
+    expect(after.syncedVersion).toBe(after.version);
+    expect(h.gateway.renders.at(-1)?.matchId).toBe(id); // the message caught up
+    expect(await h.matches.unsynced()).toEqual([]);
   });
 
   it('a match the organiser then cancels needs no Discord, and the cancel is not blocked', async () => {
@@ -256,17 +274,17 @@ describe('a recruit channel that no longer exists here', () => {
     await h.matches.sync(id);
     expect((await h.matches.get(id)).status).toBe('CANCELLED');
     // Nothing actionable is said about a match that is already over.
-    expect(h.logging.events.filter((e) => e.name === 'match.recruit_channel_gone' && e.audit)).toHaveLength(0);
+    expect(h.logging.events.filter((e) => e.name === 'match.recruit_channel_unreachable' && e.audit)).toHaveLength(0);
     await expectInvariants();
   });
 
-  it('a missing PERMISSION is not «gone»: it still fails loudly rather than giving up', async () => {
+  it('a missing PERMISSION is not «not found»: it still fails loudly rather than giving up', async () => {
     const h = await harness();
     const id = await newMatch(h);
     h.gateway.missingRecruit = ['SendMessages'];
     h.gateway.failRenders = true;
     await expect(h.matches.sync(id)).rejects.toThrow();
-    expect(h.logging.events.filter((e) => e.name === 'match.recruit_channel_gone')).toHaveLength(0);
+    expect(h.logging.events.filter((e) => e.name === 'match.recruit_channel_unreachable')).toHaveLength(0);
   });
 });
 

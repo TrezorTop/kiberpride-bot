@@ -5,7 +5,7 @@
 //
 // 50001 is what a stale guild actually produced: `guild.channels.fetch(<other guild's id>)`
 // answered «Missing Access», which is indistinguishable, from here, from «not there».
-import { DiscordAPIError, RESTJSONErrorCodes } from 'discord.js';
+import { DiscordAPIError, DiscordjsError, DiscordjsErrorCodes, RESTJSONErrorCodes } from 'discord.js';
 
 /**
  * Codes that mean «this id resolves to nothing this bot may use here».
@@ -24,6 +24,11 @@ const MISSING_CODES: readonly (number | string)[] = [
 ];
 
 export function isMissing(err: unknown): boolean {
+  // discord.js checks the guild itself before it ever reaches the network: when the bot IS still
+  // in the other guild, `GuildChannelManager.fetch` gets the channel and throws its own
+  // `GuildChannelUnowned` instead of a 50001 (review 2026-09-20). Same meaning, different class —
+  // without this case a foreign id only looks absent after the bot has LEFT the other guild.
+  if (err instanceof DiscordjsError) return err.code === DiscordjsErrorCodes.GuildChannelUnowned;
   return err instanceof DiscordAPIError && MISSING_CODES.includes(err.code);
 }
 
@@ -31,6 +36,11 @@ export function isMissing(err: unknown): boolean {
  * Does this channel / role / member belong to the guild this deployment serves? discord.js puts
  * the guild on `guildId` (channels) or on `guild.id` (roles); anything without either is treated
  * as foreign, which costs at most one re-creation and never keeps a stale id alive.
+ *
+ * Still needed where the object arrives WITHOUT a fetch that could throw: `roleById`'s
+ * `guild.roles.cache.get(id)` hit, the fake gateway's own channel map (`tests/fakes/gateway.ts`),
+ * and any collection walked in memory. After a `guild.channels.fetch(id)` it is a cheap belt:
+ * that path is covered by `isMissing` above.
  */
 export function belongsToGuild(entity: unknown, guildId: string): boolean {
   if (entity === null || typeof entity !== 'object') return false;

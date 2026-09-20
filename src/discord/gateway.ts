@@ -65,12 +65,23 @@ export class DiscordGateway implements GuildGateway, AuditLog {
   async ensureLogChannel(currentId: string | null): Promise<string> {
     const guild = await this.guild();
     if (currentId) {
-      // Gone, refused, or another guild's channel: all three mean «create a new one» (missing.ts).
+      // Gone, refused, or another guild's channel: all three mean «this id is no use» (missing.ts).
       const existing = await this.channelById(guild, currentId);
       if (existing?.type === ChannelType.GuildText) {
         this.logChannelId = existing.id;
         return existing.id;
       }
+    }
+
+    // 008 §7 ensure-by-id-then-name, and now required rather than tidy (review 2026-09-20): the id
+    // fails to resolve for a channel that is right there (a stale id after a move, a foreign-guild
+    // id, View taken away and given back), and a fresh `kp-логи` on every such start would litter
+    // the server with duplicates that each hold part of the history.
+    const all = await guild.channels.fetch();
+    const adopted = all.find((c) => c?.type === ChannelType.GuildText && c.name === LOG_CHANNEL_NAME);
+    if (adopted) {
+      this.logChannelId = adopted.id;
+      return adopted.id;
     }
 
     const botId = this.botId();

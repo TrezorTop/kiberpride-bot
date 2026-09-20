@@ -38,10 +38,12 @@ logs `guild changed — stored Discord ids dropped`. Balances, the ledger, price
 rights and match history are untouched.
 
 After such a move the owner sets the channels again on `/игры → ⚙️ Настройки` and on the shop
-settings screen; the log channel is re-created automatically on the first log event. Matches that
-were still open on the old server stay open here: their recruit channel does not exist, so their
-sync gives up with one line in the log channel («канал набора больше не существует…») instead of
-retrying forever, and an organiser cancels them from `/игры`.
+settings screen; the log channel is adopted by name (`kp-логи`) or created on the first log event.
+Matches that were still open on the old server stay open here: their recruit channel does not
+resolve, so each sync stops before touching Discord and says so once per change in the log channel
+(«бот не видит канал набора…»), and an organiser cancels them from `/игры`. Nothing is posted and
+nothing is paid twice; the same line appears for a channel in THIS server the bot has lost sight
+of, and there it repairs itself as soon as the bot can see the channel again.
 
 If the move was an accident (the bot was removed from the real server while still a member of an
 old test one), the way back is to re-invite it to the real server, set `DISCORD_GUILD_ID` to that
