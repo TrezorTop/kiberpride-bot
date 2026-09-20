@@ -4,11 +4,11 @@
 import type { AnySelectMenuInteraction } from 'discord.js';
 import { DomainError } from '../../core/errors.js';
 import { intArg, snowflakeArg } from '../customId.js';
-import { displayNames } from '../member.js';
+import { actorOf, displayNames } from '../member.js';
 import { idArg, requireSettingsRight } from '../panels.js';
 import type { ComponentRoute } from '../router.js';
 import { showClanPanel, showRoomPanel, showShopSettings } from '../shopScreens.js';
-import { addOutcomeNote, quoteView } from '../views/shop.js';
+import { addOutcomeNote, quoteView, revokeConfirmView } from '../views/shop.js';
 
 type Route = ComponentRoute<AnySelectMenuInteraction>;
 
@@ -90,6 +90,23 @@ export const roomRemoveSelect: Route = {
     if (!userId) throw new DomainError('STALE_PANEL', 'bad user');
     await ctx.rooms.removeGuest(interaction.user.id, userId);
     await showRoomPanel(interaction, ctx, `➖ <@${userId}> больше не гость комнаты.`);
+  },
+};
+
+/** `kp1:rvksel:<userId>` — the purchase an administrator picked in `/отозвать` (decision 023). */
+export const revokePurchaseSelect: Route = {
+  defer: 'update',
+  async run(interaction, args, ctx) {
+    const userId = snowflakeArg(args[0]);
+    if (!userId) throw new DomainError('STALE_PANEL', 'bad player id');
+    const purchaseId = intArg(first(interaction));
+    if (purchaseId === null) throw new DomainError('STALE_PANEL', 'bad purchase id');
+    // The list is re-read, so the right is re-checked and the period count is the current one.
+    const actor = await actorOf(interaction);
+    const items = await ctx.shop.revokeList(actor, userId);
+    const picked = items.find((i) => i.purchaseId === purchaseId);
+    if (!picked) throw new DomainError('STALE_PANEL', `purchase ${purchaseId} is no longer active`);
+    await interaction.editReply(revokeConfirmView(userId, picked));
   },
 };
 

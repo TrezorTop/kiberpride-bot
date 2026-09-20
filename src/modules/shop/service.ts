@@ -105,6 +105,41 @@ export interface GoodAdminView {
   warnings: Problem[];
 }
 
+/** One line of the `/отозвать` screen: an ACTIVE purchase of the chosen player (decision 023 §1). */
+export interface RevokeItem {
+  purchaseId: number;
+  goodId: number;
+  goodName: string;
+  kind: string;
+  /** The panel carries it as the guard value; a renewal in between makes the panel stale. */
+  periods: number;
+  /** The running total of every period paid — what «вернуть монеты» gives back (023 §3). */
+  pricePaid: number;
+  expiresAt: Date | null;
+  applied: boolean;
+}
+
+export interface RevokeInput {
+  purchaseId: number;
+  /** The period count the panel showed (014 §1): anything else means the purchase changed. */
+  expectedPeriods: number;
+  /** The administrator's choice between the two buttons (023 §1). */
+  refund: boolean;
+}
+
+export interface RevokeResult {
+  purchaseId: number;
+  userId: string;
+  goodName: string;
+  kind: string;
+  /** null = taken back without a refund; a number = the KP Coin that went back. */
+  refunded: number | null;
+  /** The player's balance after the refund; null when nothing moved. */
+  balanceAfter: number | null;
+  /** false = Discord did not confirm within the wait: «уберётся в течение пары минут». */
+  cleaned: boolean;
+}
+
 export interface ShopService {
   overview(userId: string): Promise<ShopOverview>;
   grants(userId: string): Promise<GrantView[]>;
@@ -125,6 +160,10 @@ export interface ShopService {
   memberLeft(userId: string): Promise<void>;
   /** The goods as the shop settings screen shows them: problems from the cached checks. */
   adminList(actor: MemberFacts): Promise<GoodAdminView[]>;
+  /** `/отозвать`: the player's ACTIVE purchases, for an administrator (SHOP_MANAGE; 023 §4). */
+  revokeList(actor: MemberFacts, userId: string): Promise<RevokeItem[]>;
+  /** Ends one purchase by hand, with or without giving the KP Coin back (decision 023). */
+  revoke(actor: MemberFacts, input: RevokeInput): Promise<RevokeResult>;
   configure(actor: MemberFacts, goodId: number, patch: Record<string, unknown>): Promise<GoodAdminView>;
   setEnabled(actor: MemberFacts, goodId: number, enabled: boolean): Promise<GoodAdminView & { enabled: boolean }>;
   /** Startup: validate every enabled good, then reconcile everything (014 §4.3). */
@@ -520,6 +559,11 @@ export function createShopService(deps: ShopDeps): ShopService {
     if (!(await permissions.can(actor, Capability.SETTINGS_MANAGE))) throw new DomainError('NOT_ALLOWED', 'shop settings');
   }
 
+  /** The right, not the command's visibility, is what allows `/отозвать` (decisions 020 §3, 023 §4). */
+  async function requireShopManage(actor: MemberFacts): Promise<void> {
+    if (!(await permissions.can(actor, Capability.SHOP_MANAGE))) throw new DomainError('NOT_ALLOWED', 'revoke purchase');
+  }
+
   async function adminView(good: GoodRecord, mode: 'precheck' | 'validate'): Promise<GoodAdminView> {
     const bound = bindKind(good);
     if (!bound) return { good, line: good.description, problems: [{ code: 'bad_config' }], warnings: [] };
@@ -728,6 +772,84 @@ export function createShopService(deps: ShopDeps): ShopService {
       await requireSettings(actor);
       const goods = await db.shopGood.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] });
       return Promise.all(goods.map((g) => adminView(toGoodRecord(g), 'precheck')));
+    },
+
+    async revokeList(actor, userId) {
+      await requireShopManage(actor);
+      const rows = await db.purchase.findMany({
+        where: { userId, status: 'ACTIVE' },
+        include: { good: { select: { name: true, kind: true } } },
+        orderBy: { id: 'asc' },
+      });
+      return rows.map((r) => ({
+        purchaseId: r.id,
+        goodId: r.goodId,
+        goodName: r.good.name,
+        kind: r.good.kind,
+        periods: r.periods,
+        pricePaid: r.pricePaid,
+        expiresAt: r.expiresAt,
+        applied: r.appliedAt !== null,
+      }));
+    },
+
+    async revoke(actor, { purchaseId, expectedPeriods, refund }) {
+      await requireShopManage(actor);
+      // Read for the texts only; what decides is the guarded UPDATE below.
+      const before = await db.purchase.findUnique({ where: { id: purchaseId }, include: { good: { select: { name: true, kind: true } } } });
+      if (!before) throw new DomainError('NOT_FOUND', `purchase ${purchaseId}`);
+      const goodName = before.good.name;
+      const now = clock.now();
+
+      const done = await withTxRetry(db, async (tx) => {
+        // The whole safety of the command is this guard (023 §3): a purchase that was renewed,
+        // expired, refunded or already revoked since the panel was drawn finds no row, so nothing
+        // is taken back twice and `refund:<id>` — the reference the failed-apply refund also uses
+        // (014 §2) — is claimed at most once per purchase.
+        const rows = await tx.$queryRaw<{ userId: string; goodId: number; pricePaid: number }[]>`
+          UPDATE "Purchase" SET "status" = 'REVOKED', "revokedAt" = ${now}, "revokedById" = ${actor.userId}
+          WHERE "id" = ${purchaseId} AND "status" = 'ACTIVE' AND "periods" = ${expectedPeriods}
+          RETURNING "userId", "goodId", "pricePaid"`;
+        const row = rows[0];
+        if (!row) return null;
+        // A clan closes exactly as expiry closes it: members freed, name free again (023 §2).
+        await closeClans(tx, [purchaseId], now);
+        if (!refund || row.pricePaid <= 0) return { ...row, refunded: refund ? 0 : null, balanceAfter: null };
+        const moved = await economy.move(
+          { userId: row.userId, amount: row.pricePaid, kind: TxKind.REFUND, reference: `refund:${purchaseId}`, description: `возврат: ${goodName}`, purchaseId, actorId: actor.userId },
+          tx,
+        );
+        return { ...row, refunded: row.pricePaid, balanceAfter: moved.entry.balanceAfter };
+      });
+      if (!done) throw new DomainError('STALE_PANEL', `revoke of purchase ${purchaseId}, expected period ${expectedPeriods}`);
+
+      // The audit line first: the money has committed, and a Discord failure below must never
+      // lose it (the ordering fix of the /начислить review, 2026-09-20).
+      await logging.event(
+        'shop.revoked',
+        { purchaseId, actorId: actor.userId, userId: done.userId, goodId: done.goodId, refunded: done.refunded },
+        `🚫 ${mention(actor.userId)} отозвал «${goodName}» у ${mention(done.userId)} (покупка #${purchaseId}) — ${
+          done.refunded === null ? 'без возврата KP Coin' : `${done.refunded} KP Coin возвращены`
+        }.`,
+      );
+
+      // Discord follows through the same convergence as expiry: the role is taken away, the clan
+      // role deleted, the room deleted — never a separate path (023 §2).
+      await Promise.race([queue.enqueue(keyOf(done.userId, done.goodId)), sleep(applyWaitMs, undefined, { ref: false })]);
+      const after = await db.purchase.findUnique({ where: { id: purchaseId }, select: { cleanedAt: true } });
+
+      const sent = await gateway.sendDm(done.userId, { kind: 'grant_revoked', goodName, amount: done.refunded }).catch(() => 'refused' as const);
+      await logging.event('shop.revoke_notified', { purchaseId, userId: done.userId, sent });
+
+      return {
+        purchaseId,
+        userId: done.userId,
+        goodName,
+        kind: before.good.kind,
+        refunded: done.refunded,
+        balanceAfter: done.balanceAfter,
+        cleaned: after?.cleanedAt != null,
+      };
     },
 
     async configure(actor, goodId, patch) {

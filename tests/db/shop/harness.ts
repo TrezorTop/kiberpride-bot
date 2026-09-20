@@ -116,7 +116,12 @@ export async function expectShopInvariants(): Promise<void> {
     FROM "Purchase" p`;
   for (const p of paid) {
     expect({ purchase: p.id, charged: Number(p.charged ?? 0) }).toEqual({ purchase: p.id, charged: p.pricePaid });
-    expect({ purchase: p.id, refunded: Number(p.refunded ?? 0) }).toEqual({ purchase: p.id, refunded: p.status === 'REFUNDED' ? p.pricePaid : 0 });
+    // A refund is all of it or none of it, and it happens at most once: `refund:<id>` is unique.
+    // REFUNDED always gave the money back (014 §2); REVOKED gave it back only if the
+    // administrator chose to (decision 023 §1); every other status never did.
+    const refunded = Number(p.refunded ?? 0);
+    const allowed = p.status === 'REFUNDED' ? [p.pricePaid] : p.status === 'REVOKED' ? [0, p.pricePaid] : [0];
+    expect({ purchase: p.id, status: p.status, refunded }).toEqual({ purchase: p.id, status: p.status, refunded: allowed.includes(refunded) ? refunded : allowed[0] });
   }
 }
 

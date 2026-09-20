@@ -5,11 +5,12 @@ import { bonusCommand } from './bonus.js';
 import { gamesCommand } from './games.js';
 import { grantCommand } from './grant.js';
 import { profileCommand } from './profile.js';
+import { revokeCommand } from './revoke.js';
 import { rightsCommand } from './rights.js';
 import { shopCommand } from './shop.js';
 import { shopSettingsCommand } from './shopSettings.js';
 
-const all: CommandRoute[] = [balanceCommand, profileCommand, shopCommand, bonusCommand, gamesCommand, shopSettingsCommand, rightsCommand, grantCommand];
+const all: CommandRoute[] = [balanceCommand, profileCommand, shopCommand, bonusCommand, gamesCommand, shopSettingsCommand, rightsCommand, grantCommand, revokeCommand];
 
 export const commands: ReadonlyMap<string, CommandRoute> = new Map(all.map((c) => [c.definition.name, c]));
 export const commandDefinitions = all.map((c) => c.definition);
