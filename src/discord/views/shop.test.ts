@@ -2,7 +2,7 @@
 // component id decodes to a route that exists, and the texts that carry a guarantee say it.
 import type { ActionRowBuilder, EmbedBuilder, MessageActionRowComponentBuilder } from 'discord.js';
 import { describe, expect, it } from 'vitest';
-import type { GoodAdminView, GrantView, Quote, RevokeItem, ShopOverview } from '../../modules/shop/service.js';
+import type { GoodAdminView, GrantByAdminResult, GrantView, Quote, RevokeItem, ShopOverview } from '../../modules/shop/service.js';
 import { DEFAULT_CLAN_PALETTE } from '../../modules/shop/kinds/clanRole.js';
 import { buttons } from '../buttons/index.js';
 import { decodeCustomId } from '../customId.js';
@@ -15,8 +15,11 @@ import {
   clanModal,
   clanPanelView,
   dailyClaimedEmbed,
+  grantClanPromptView,
+  grantGoodResultView,
   grantStateText,
   historyView,
+  noRoomView,
   playerNoticeEmbed,
   purchasesView,
   quoteView,
@@ -58,6 +61,19 @@ const revokeItem = (over: Partial<RevokeItem> = {}): RevokeItem => ({
   ...over,
 });
 const offer = { id: 1, slug: 'media_access', name: 'Доступ к картинкам и GIF', description: 'd', price: 5000, kind: 'channel_permission', validityDays: 30, line: 'Картинки, файлы и GIF' };
+const grantResult = (over: Partial<GrantByAdminResult> = {}): GrantByAdminResult => ({
+  purchaseId: 7,
+  userId: U,
+  goodName: 'Доступ к картинкам и GIF',
+  kind: 'channel_permission',
+  days: 30,
+  periods: 1,
+  extended: false,
+  expiresAt: new Date(NOW.getTime() + 30 * DAY),
+  applied: true,
+  notified: true,
+  ...over,
+});
 const quote = (over: Partial<Quote> = {}): Quote => ({
   good: offer,
   mode: 'new',
@@ -72,7 +88,19 @@ const quote = (over: Partial<Quote> = {}): Quote => ({
   ...over,
 });
 const clan = { clanId: 1, purchaseId: 2, goodId: 2, name: 'Волки', color: 0xe74c3c, colorLabel: 'Красный', ownerId: U, memberIds: [U.replace(/1$/, '2')], maxMembers: 10, expiresAt: new Date(NOW.getTime() + 5 * DAY), applied: true, isOwner: true, palette: DEFAULT_CLAN_PALETTE };
-const room = { roomId: 1, purchaseId: 3, goodId: 3, name: 'Штаб', channelId: '500000000000000009', userLimit: 5, locked: true, guestIds: [U], expiresAt: new Date(NOW.getTime() + 5 * DAY), applied: true };
+const room = {
+  roomId: 1,
+  purchaseId: 3,
+  goodId: 3,
+  ownerId: U,
+  name: 'Штаб',
+  channelId: '500000000000000009',
+  userLimit: 5,
+  locked: true,
+  guestIds: [U],
+  expiresAt: new Date(NOW.getTime() + 5 * DAY),
+  applied: true,
+};
 const admin = (kind: string, config: Record<string, unknown>, enabled = false): GoodAdminView => ({
   good: { id: kind === 'channel_permission' ? 1 : kind === 'clan_role' ? 2 : 3, slug: kind, name: kind, description: '', price: 5000, kind, config, validityDays: 30, enabled },
   line: '',
@@ -92,7 +120,8 @@ const views: [string, { embeds: EmbedBuilder[]; components: Rows }][] = [
   ['bought', buyResultView({ purchaseId: 5, goodName: 'Клановая роль', kind: 'clan_role', periods: 1, renewed: false, expiresAt: NOW, applied: false, balanceAfter: 0 })],
   ['clan owner', clanPanelView(clan, names, NOW)],
   ['clan member', clanPanelView({ ...clan, isOwner: false }, names, NOW)],
-  ['room', roomPanelView(room, names, NOW, 'заметка')],
+  ['room', roomPanelView(room, names, NOW, { note: 'заметка', viewerId: U })],
+  ['room seen by an administrator', roomPanelView(room, names, NOW, { viewerId: '300000000000000099' })],
   ['purchases dev', purchasesView([grant()], NOW, { dev: true })],
   ['history', historyView(U, { entries: [{ id: 1, userId: U, amount: 50, balanceAfter: 50, kind: 'DAILY_BONUS', reference: 'x', description: 'ежедневный бонус', createdAt: NOW }], page: 2, pages: 3, total: 23 }, true)],
   [
@@ -110,6 +139,7 @@ const views: [string, { embeds: EmbedBuilder[]; components: Rows }][] = [
         dailyClaimedEmbed(50, 150, NOW),
         playerNoticeEmbed({ kind: 'grant_expiring', goodName: 'X', expiresAt: NOW }),
         playerNoticeEmbed({ kind: 'grant_refunded', goodName: 'X', amount: 5000 }),
+        playerNoticeEmbed({ kind: 'grant_refunded', goodName: 'X', amount: 0 }),
         playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: null }),
         playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: 5000 }),
       ],
@@ -117,6 +147,15 @@ const views: [string, { embeds: EmbedBuilder[]; components: Rows }][] = [
     },
   ],
   ['revoke list', revokeListView(U, [revokeItem()])],
+  ['revoke confirm, gifted', revokeConfirmView(U, revokeItem({ pricePaid: 0 }))],
+  [
+    'revoke done, gifted',
+    revokeResultView({ purchaseId: 5, userId: U, goodName: 'Личная комната', kind: 'personal_room', refunded: 0, balanceAfter: null, cleaned: true, notified: true }),
+  ],
+  ['grant clan prompt', grantClanPromptView({ goodId: 2, goodName: 'Клановая роль', userId: U, days: 30 })],
+  ['grant done', grantGoodResultView(grantResult())],
+  ['grant extended, private messages closed', grantGoodResultView(grantResult({ extended: true, applied: false, notified: false }))],
+  ['no room', noRoomView(U)],
   ['revoke list empty', revokeListView(U, [])],
   ['revoke confirm', revokeConfirmView(U, revokeItem({ periods: 3, pricePaid: 15_000 }))],
   ['revoke done', revokeResultView({ purchaseId: 5, userId: U, goodName: 'Доступ к картинкам и GIF', kind: 'channel_permission', refunded: 5000, balanceAfter: 6000, cleaned: true, notified: true })],
@@ -145,7 +184,13 @@ describe('shop views', () => {
   });
 
   it('the modals submit to registered routes', () => {
-    for (const modal of [clanModal(DEFAULT_CLAN_PALETTE, { goodId: 2 }), clanModal(DEFAULT_CLAN_PALETTE, { rename: true }, { name: 'А', color: 0 }), roomNameModal('Штаб')]) {
+    const forms = [
+      clanModal(DEFAULT_CLAN_PALETTE, { goodId: 2 }),
+      clanModal(DEFAULT_CLAN_PALETTE, { goodId: 2, userId: U, days: 30 }),
+      clanModal(DEFAULT_CLAN_PALETTE, { rename: true }, { name: 'А', color: 0 }),
+      roomNameModal(1, 'Штаб'),
+    ];
+    for (const modal of forms) {
       const decoded = decodeCustomId(modal.toJSON().custom_id);
       expect(modals.has(decoded?.action ?? '')).toBe(true);
     }
@@ -200,6 +245,52 @@ describe('shop views', () => {
     for (const id of ids ?? []) expect(id).not.toContain('15000');
   });
 
+  it('a purchase nobody paid for never talks about «0 KP Coin» (023 F5, 024)', () => {
+    const confirm = revokeConfirmView(U, revokeItem({ pricePaid: 0 }));
+    expect(confirm.embeds[0]?.toJSON().description).toContain('возвращать нечего — товар был выдан вручную');
+    expect(confirm.embeds[0]?.toJSON().description).not.toContain('0 KP Coin');
+    // Nothing was paid, so the «вернуть монеты» choice is not offered at all.
+    expect(confirm.components[0]?.toJSON().components).toHaveLength(1);
+    expect(revokeListView(U, [revokeItem({ pricePaid: 0 })]).embeds[0]?.toJSON().description).toContain('выдан вручную');
+
+    const done = revokeResultView({ purchaseId: 5, userId: U, goodName: 'X', kind: 'personal_room', refunded: 0, balanceAfter: null, cleaned: true, notified: true });
+    expect(done.embeds[0]?.toJSON().description).toContain('Возвращать нечего — товар был выдан вручную.');
+    expect(done.embeds[0]?.toJSON().description).not.toContain('0 KP Coin');
+    expect(playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: 0 }).toJSON().description).not.toContain('0 KP Coin');
+
+    // The same for a hand-out that Discord never managed to apply: it is ended, not refunded
+    // (architect review 2026-09-20, M1).
+    const failed = playerNoticeEmbed({ kind: 'grant_refunded', goodName: 'X', amount: 0 }).toJSON();
+    expect(failed.description).not.toContain('0 KP Coin');
+    expect(failed.description).toContain('возвращать нечего');
+    expect(playerNoticeEmbed({ kind: 'grant_refunded', goodName: 'X', amount: 5000 }).toJSON().description).toContain('5 000 KP Coin вернулись');
+  });
+
+  it('a hand-out says who got what, until when, and that nothing was paid (024 §1)', () => {
+    const text = grantGoodResultView(grantResult()).embeds[0]?.toJSON().description ?? '';
+    expect(text).toContain(`<@${U}>`);
+    expect(text).toContain('30 дн.');
+    expect(text).toContain('KP Coin с игрока не списаны');
+    expect(grantGoodResultView(grantResult({ notified: false })).embeds[0]?.toJSON().description).toContain('закрыта личка');
+    expect(grantGoodResultView(grantResult({ extended: true })).embeds[0]?.toJSON().title).toBe('🎁 Срок продлён');
+    expect(playerNoticeEmbed({ kind: 'grant_gifted', goodName: 'X', expiresAt: NOW, extended: false }).toJSON().description).toContain('не списывались');
+  });
+
+  it('the clan hand-out form carries the player and the days, never a name (002 §4, 024 §1)', () => {
+    const id = (grantClanPromptView({ goodId: 2, goodName: 'Клановая роль', userId: U, days: 45 }).components[0]?.toJSON().components[0] as { custom_id?: string }).custom_id;
+    expect(decodeCustomId(id ?? '')).toEqual({ action: 'shgcn', args: ['2', U, '45'] });
+    expect(decodeCustomId(clanModal(DEFAULT_CLAN_PALETTE, { goodId: 2, userId: U, days: 45 }).toJSON().custom_id)).toEqual({ action: 'shgcl', args: ['2', U, '45'] });
+  });
+
+  it('every button of a room panel carries the room, so an administrator presses on the right one (024 §4)', () => {
+    const view = roomPanelView(room, names, NOW, { viewerId: '300000000000000099' });
+    const ids = view.components.flatMap((r) => r.toJSON().components.map((c) => (c as { custom_id?: string }).custom_id ?? ''));
+    for (const id of ids) expect(decodeCustomId(id)?.args[0]).toBe(String(room.roomId));
+    expect(view.embeds[0]?.toJSON().description).toContain(`Комната <@${room.ownerId}>`);
+    expect(roomPanelView(room, names, NOW, { viewerId: room.ownerId }).embeds[0]?.toJSON().description).not.toContain('как администратор');
+    expect(decodeCustomId(roomNameModal(room.roomId, 'Штаб').toJSON().custom_id)).toEqual({ action: 'rmnamef', args: [String(room.roomId)] });
+  });
+
   it('the private message says whether the KP Coin came back (023 §5)', () => {
     expect(playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: null }).toJSON().description).toContain('не возвращаются');
     expect(playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: 5000 }).toJSON().description).toContain('5 000 KP Coin');
@@ -209,5 +300,19 @@ describe('shop views', () => {
     expect(domainErrorText({ code: 'ALREADY_CLAIMED', params: { at: NOW } })).toContain(`<t:${NOW.getTime() / 1000}:R>`);
     expect(domainErrorText({ code: 'NAME_INVALID', params: { reason: 'link' } })).toContain('Ссылки');
     expect(domainErrorText({ code: 'SHOP_UNAVAILABLE' })).toContain('KP Coin не списаны');
+  });
+
+  // An administrator working on somebody else's room or purchase must not be told «у тебя»
+  // (decision 024 §4; architect review 2026-09-20, F4).
+  it('the refusals an administrator sees are about the player, not about them', () => {
+    const noRoom = domainErrorText({ code: 'NO_ROOM', params: { ownerId: U } });
+    expect(noRoom).toContain(`<@${U}>`);
+    expect(noRoom).not.toContain('У тебя');
+    expect(noRoom).toContain('/выдать-товар');
+    // The player's own refusal is unchanged: their room, their shop.
+    expect(domainErrorText({ code: 'NO_ROOM' })).toBe('У тебя нет личной комнаты. Её можно купить в /магазин 🏠');
+
+    expect(domainErrorText({ code: 'ALREADY_OWNED', params: { goodName: 'Личная комната' } })).toBe('«Личная комната» у этого игрока уже есть навсегда — продлевать нечего.');
+    expect(domainErrorText({ code: 'ALREADY_OWNED' })).toContain('Это у тебя уже есть');
   });
 });

@@ -121,7 +121,9 @@ export type PlayerNotice =
   | { kind: 'grant_expiring'; goodName: string; expiresAt: Date }
   | { kind: 'grant_refunded'; goodName: string; amount: number }
   /** An administrator took the purchase back; `amount` null = the KP Coin stayed spent (023 §5). */
-  | { kind: 'grant_revoked'; goodName: string; amount: number | null };
+  | { kind: 'grant_revoked'; goodName: string; amount: number | null }
+  /** An administrator handed the good out; nothing was paid for it (decision 024 §1). */
+  | { kind: 'grant_gifted'; goodName: string; expiresAt: Date; extended: boolean };
 
 /** Shop and earnings calls of the gateway; every one is idempotent and skips fake ids. */
 export interface ShopGateway {

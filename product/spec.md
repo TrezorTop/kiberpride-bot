@@ -124,6 +124,23 @@ the end and takes the grant back at the end; buying again while active extends b
   included, and can happen only once. The command is hidden from players; it is allowed by the
   right «управлять магазином» in `/права`, so the owner can widen it beyond administrators. A
   revoked good can be bought again.
+- **Handing a good out (decision 024):** `/выдать-товар <игрок> <товар> [дней]` gives any of the
+  three goods as a gift — **no KP Coin move at all**, 30 days by default (1–365, the
+  administrator's choice). Everything else behaves like a purchase: the role, the clan or the room
+  appear the same way, the end date, the warning a day before and `/отозвать` all work as usual.
+  Handing out what the player already has **adds the days** to what is left. A clan asks for its
+  name and colour first, in the same form the shop uses, with the player as the owner. A good the
+  owner switched off is not handed out, and the refusal says which one. The player gets a private
+  message; the log channel keeps one line naming the administrator, the player, the good and the
+  days. The right is the same «управлять магазином».
+- **A gift costs nothing to take back:** a handed-out purchase paid 0, so `/отозвать` offers a
+  single «🚫 Снять» and every screen says «возвращать нечего — товар был выдан вручную» instead of
+  «0 KP Coin».
+- **`/комната [игрок]` (decision 024 §4):** the room panel straight from a command. Without the
+  option it is the caller's own room (a player without one is told where to get it); with a player
+  it is that player's room, for a holder of «управлять магазином», who may rename it, set the
+  limit, lock or open it and manage its guests. Every change an administrator makes to someone
+  else's room is one line in the log channel naming both of them.
 - **Settings:** the command `/настройки-магазина` (decision 016; listed only for members who can
   manage the server) — the channels for media access, the room
   category, the clan anchor role, switching each good on or off. Picking a channel lets the bot
@@ -252,8 +269,11 @@ expiry, renewal and refund are listed in §2; the new earnings in §1.
 
 ---
 
-Last verified: 2026-09-20 (§2: `/отозвать` takes a purchase back with or without a refund,
-decision 023 — checked by the automated suite, not yet walked on the live server;
+Last verified: 2026-09-20 (§2: `/выдать-товар` hands a good out without a KP Coin move and
+`/комната` opens the room panel — for an administrator, anybody's room — decision 024; checked by
+the automated suite, not yet walked on the live server; §2: `/отозвать` takes a purchase back with
+or without a refund, decision 023 — checked by the automated suite, not yet walked on the live
+server;
 §1: `/начислить` moves KP Coin by hand in both directions, decision 021
 — checked by the automated suite, not yet walked on the live server; «Roles on the server» «as
 built»: rights are given to roles on `/права`,

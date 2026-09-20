@@ -5,6 +5,7 @@ import type { AnySelectMenuInteraction, ButtonInteraction, ChatInputCommandInter
 import { DomainError } from '../core/errors.js';
 import { mayUseDevTools } from '../modules/permissions/devTools.js';
 import type { MemberFacts } from '../modules/permissions/service.js';
+import type { RoomView } from '../modules/shop/room.js';
 import type { GoodAdminView } from '../modules/shop/service.js';
 import { actorOf, displayNames } from './member.js';
 import type { AppContext } from './router.js';
@@ -33,11 +34,17 @@ export async function showClanPanel(interaction: Answerable, ctx: AppContext, no
   await interaction.editReply({ content: null, embeds: view.embeds, components: view.components });
 }
 
+/** The caller's own room; a player without one is told where to get it (NO_ROOM). */
 export async function showRoomPanel(interaction: Answerable, ctx: AppContext, note?: string): Promise<void> {
   const room = await ctx.rooms.forOwner(interaction.user.id);
   if (!room) throw new DomainError('NO_ROOM', `user ${interaction.user.id}`);
+  await renderRoomPanel(interaction, ctx, room, note);
+}
+
+/** A room already loaded — the caller's own, or another player's for an administrator (024 §4). */
+export async function renderRoomPanel(interaction: Answerable, ctx: AppContext, room: RoomView, note?: string): Promise<void> {
   const names = await displayNames(interaction, room.guestIds);
-  const view = roomPanelView(room, names, new Date(), note);
+  const view = roomPanelView(room, names, new Date(), { note, viewerId: interaction.user.id });
   await interaction.editReply({ content: null, embeds: view.embeds, components: view.components });
 }
 

@@ -3,10 +3,12 @@
 import type { ButtonInteraction } from 'discord.js';
 import { DomainError } from '../../core/errors.js';
 import { mayUseDevTools } from '../../modules/permissions/devTools.js';
+import { Capability } from '../../modules/permissions/service.js';
+import { snowflakeArg } from '../customId.js';
 import { actorOf } from '../member.js';
-import { idArg, requireSettingsRight, showSettings, versionOf } from '../panels.js';
+import { flagOf, idArg, requireSettingsRight, showSettings, versionOf } from '../panels.js';
 import type { ComponentRoute } from '../router.js';
-import { displayNameOf, showClanPanel, showRoomPanel, showShopSettings } from '../shopScreens.js';
+import { displayNameOf, renderRoomPanel, showClanPanel, showRoomPanel, showShopSettings } from '../shopScreens.js';
 import { buyResultView, clanModal, dailyClaimedEmbed, enableRefusedNote, purchasesView, revokeResultView, roomNameModal } from '../views/shop.js';
 import { formatKp } from '../views/format.js';
 import { noticeEmbed } from '../views/style.js';
@@ -31,6 +33,24 @@ export const newClanButton: Route = {
     if (!quote.clanForm || !quote.palette) throw new DomainError('STALE_PANEL', `good ${goodId} is not a new clan`);
     if (quote.shortBy > 0) throw new DomainError('INSUFFICIENT_FUNDS', `short by ${quote.shortBy}`);
     await interaction.showModal(clanModal(quote.palette, { goodId }));
+  },
+};
+
+/**
+ * `kp1:shgcn:<goodId>:<userId>:<days>` — ✏️ Название и цвет клана on a `/выдать-товар` prompt
+ * (decision 024 §1): the same form the shop shows, opened for the player who will own the clan.
+ */
+export const grantClanButton: Route = {
+  defer: 'modal',
+  async run(interaction, args, ctx) {
+    const actor = await actorOf(interaction);
+    if (!(await ctx.permissions.can(actor, Capability.SHOP_MANAGE))) throw new DomainError('NOT_ALLOWED', 'grant clan');
+    const userId = snowflakeArg(args[1]);
+    if (!userId) throw new DomainError('STALE_PANEL', 'bad player id');
+    const goodId = idArg(args[0]);
+    const quote = await ctx.shop.quote(userId, goodId);
+    if (!quote.palette) throw new DomainError('STALE_PANEL', `good ${goodId} is not a clan`);
+    await interaction.showModal(clanModal(quote.palette, { goodId, userId, days: versionOf(args[2]) }));
   },
 };
 
@@ -60,23 +80,25 @@ export const clanLeaveButton: Route = {
 /** `kp1:room` — 🏠 Моя комната. */
 export const roomButton: Route = { defer: 'ephemeral', run: (interaction, _args, ctx) => showRoomPanel(interaction, ctx) };
 
-/** `kp1:rmname` — ✏️ Название комнаты (modal mode). */
+/** `kp1:rmname:<roomId>` — ✏️ Название комнаты (modal mode). */
 export const roomRenameButton: Route = {
   defer: 'modal',
-  async run(interaction, _args, ctx) {
-    const room = await ctx.rooms.forOwner(interaction.user.id);
-    if (!room) throw new DomainError('NO_ROOM', interaction.user.id);
-    await interaction.showModal(roomNameModal(room.name));
+  async run(interaction, args, ctx) {
+    // The right is checked here and again when the form comes back (024 §4).
+    const room = await ctx.rooms.forManager(await actorOf(interaction), idArg(args[0]));
+    await interaction.showModal(roomNameModal(room.roomId, room.name));
   },
 };
 
-/** `kp1:rmlock:<1|0>` — 🔒 закрыть / 🔓 открыть комнату. */
+/** `kp1:rmlock:<roomId>:<1|0>` — 🔒 закрыть / 🔓 открыть комнату. */
 export const roomLockButton: Route = {
   defer: 'update',
   async run(interaction, args, ctx) {
-    const locked = args[0] === '1';
-    await ctx.rooms.update(interaction.user.id, { locked });
-    await showRoomPanel(interaction, ctx, locked ? '🔒 Комната закрыта: заходят только ты и гости.' : '🔓 Комната открыта для всех.');
+    // The flag is read FIRST and must be explicit: the old shape was `rmlock:<1|0>`, so a panel
+    // from before this deploy would otherwise read as «открыть комнату #1 для всех» (024 M2).
+    const locked = flagOf(args[1]);
+    const room = await ctx.rooms.update(await actorOf(interaction), idArg(args[0]), { locked });
+    await renderRoomPanel(interaction, ctx, room, locked ? '🔒 Комната закрыта: заходят только владелец и гости.' : '🔓 Комната открыта для всех.');
   },
 };
 
@@ -135,7 +157,7 @@ export const revokeButton: Route = {
   defer: 'update',
   async run(interaction, args, ctx) {
     const actor = await actorOf(interaction);
-    const result = await ctx.shop.revoke(actor, { purchaseId: idArg(args[0]), expectedPeriods: versionOf(args[1]), refund: args[2] === '1' });
+    const result = await ctx.shop.revoke(actor, { purchaseId: idArg(args[0]), expectedPeriods: versionOf(args[1]), refund: flagOf(args[2]) });
     await interaction.editReply(revokeResultView(result));
   },
 };
@@ -164,7 +186,7 @@ export const enableGoodButton: Route = {
   async run(interaction, args, ctx) {
     const actor = await requireSettingsRight(interaction, ctx);
     const goodId = idArg(args[0]);
-    const want = args[1] === '1';
+    const want = flagOf(args[1]);
     const result = await ctx.shop.setEnabled(actor, goodId, want);
     const note =
       want && !result.enabled

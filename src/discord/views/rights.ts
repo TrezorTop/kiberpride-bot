@@ -25,7 +25,8 @@ export const CAPABILITY_TEXT: Record<CapabilityName, { emoji: string; label: str
   MATCH_MANAGE_ANY: { emoji: '🛠️', label: 'Управлять чужими матчами', line: 'управлять любым матчем, а не только своим' },
   ECONOMY_ADMIN: { emoji: '💰', label: 'Управлять KP Coin', line: 'смотреть чужую историю и начислять KP Coin вручную' },
   // Since 023 this right also ends a player's purchase and decides whether the coins come back.
-  SHOP_MANAGE: { emoji: '🛒', label: 'Управлять магазином', line: 'управлять товарами магазина и отзывать покупки игроков' },
+  // 024 §2, §4 widened it again: handing a good out and managing a player's room are the same right.
+  SHOP_MANAGE: { emoji: '🛒', label: 'Управлять магазином', line: 'выдавать и отзывать товары, управлять комнатами игроков' },
   // Self-amplifying: its holder can grant every other right, including KP Coin. Say so (020).
   SETTINGS_MANAGE: { emoji: '⚙️', label: 'Менять настройки', line: 'менять настройки бота и раздавать права — в том числе на начисление KP Coin' },
 };

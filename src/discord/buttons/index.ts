@@ -22,6 +22,7 @@ import {
   clanLeaveButton,
   clanRenameButton,
   dailyButton,
+  grantClanButton,
   devExpireButton,
   devTopUpButton,
   enableGoodButton,
@@ -70,4 +71,6 @@ export const buttons: ReadonlyMap<string, ComponentRoute<ButtonInteraction>> = n
   ['shen', enableGoodButton],
   // /отозвать (decision 023)
   ['rvk', revokeButton],
+  // /выдать-товар (decision 024)
+  ['shgcn', grantClanButton],
 ]);
