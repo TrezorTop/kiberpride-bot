@@ -7,7 +7,7 @@ import { actorOf } from '../member.js';
 import { idArg, requireSettingsRight, showSettings, versionOf } from '../panels.js';
 import type { ComponentRoute } from '../router.js';
 import { displayNameOf, showClanPanel, showRoomPanel, showShopSettings } from '../shopScreens.js';
-import { buyResultView, clanModal, dailyClaimedEmbed, enableRefusedNote, purchasesView, roomNameModal } from '../views/shop.js';
+import { buyResultView, clanModal, dailyClaimedEmbed, enableRefusedNote, purchasesView, revokeResultView, roomNameModal } from '../views/shop.js';
 import { formatKp } from '../views/format.js';
 import { noticeEmbed } from '../views/style.js';
 
@@ -123,6 +123,20 @@ export const dailyButton: Route = {
   async run(interaction, _args, ctx) {
     const r = await ctx.earnings.claimDaily(interaction.user.id);
     await interaction.editReply({ embeds: [dailyClaimedEmbed(r.amount, r.balanceAfter, r.nextAt)] });
+  },
+};
+
+/**
+ * `kp1:rvk:<purchaseId>:<periods>:<1|0>` — 🚫 Снять без возврата / ↩️ Снять и вернуть монеты
+ * (decision 023 §1). The id carries the period count as the guard, never an amount (002 §4);
+ * SHOP_MANAGE is checked in the service.
+ */
+export const revokeButton: Route = {
+  defer: 'update',
+  async run(interaction, args, ctx) {
+    const actor = await actorOf(interaction);
+    const result = await ctx.shop.revoke(actor, { purchaseId: idArg(args[0]), expectedPeriods: versionOf(args[1]), refund: args[2] === '1' });
+    await interaction.editReply(revokeResultView(result));
   },
 };
 

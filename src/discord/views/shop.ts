@@ -26,7 +26,7 @@ import type { Problem } from '../../modules/shop/kinds/index.js';
 import { NAME_MAX, NAME_MIN } from '../../modules/shop/names.js';
 import { problemText } from '../../modules/shop/problems.js';
 import { MAX_GUESTS, ROOM_LIMITS, type RoomView } from '../../modules/shop/room.js';
-import type { BuyResult, GoodAdminView, GrantView, Quote, ShopOverview } from '../../modules/shop/service.js';
+import type { BuyResult, GoodAdminView, GrantView, Quote, RevokeItem, RevokeResult, ShopOverview } from '../../modules/shop/service.js';
 import { encodeCustomId } from '../customId.js';
 import { formatKp, formatLedgerLine, groupDigits, CURRENCY } from './format.js';
 import { brandEmbed, noticeEmbed } from './style.js';
@@ -375,7 +375,94 @@ export function playerNoticeEmbed(n: PlayerNotice): EmbedBuilder {
         `Не получилось выдать «${n.goodName}» — прости! ${kp(n.amount)} вернулись на твой баланс. Администраторы уже разбираются.`,
         '↩️ KP Coin возвращены',
       );
+    case 'grant_revoked':
+      return noticeEmbed(
+        `Администратор снял с тебя «${n.goodName}».\n${
+          n.amount === null ? 'KP Coin за покупку не возвращаются.' : `${kp(n.amount)} вернулись на твой баланс.`
+        }\nЕсли это кажется ошибкой — напиши администраторам сервера KiberPride 🙂`,
+        '🚫 Покупка отозвана',
+      );
   }
+}
+
+// ─── /отозвать (decision 023) ───────────────────────────────────────────────
+
+/** «оплачено 5 000 KP Coin», or the running total when the purchase was renewed (014 §1). */
+const paidLine = (item: Pick<RevokeItem, 'pricePaid' | 'periods'>) => `оплачено ${kp(item.pricePaid)}${item.periods > 1 ? ' за всё время' : ''}`;
+
+const untilLine = (expiresAt: Date | null) => (expiresAt ? `до <t:${unix(expiresAt)}:D>` : 'навсегда');
+
+/** The administrator's first screen: the player's active purchases, one select to pick one. */
+export function revokeListView(userId: string, items: readonly RevokeItem[], note?: string): View {
+  if (items.length === 0) {
+    return { embeds: [noticeEmbed(`У <@${userId}> сейчас нет активных покупок — отзывать нечего 🙂`, '🚫 Отозвать покупку')], components: [] };
+  }
+  const embed = brandEmbed()
+    .setTitle('🚫 Отозвать покупку')
+    .setDescription(
+      [note, `Покупки <@${userId}>:`, items.map((i) => `**${i.goodName}** — ${untilLine(i.expiresAt)} · ${paidLine(i)}`).join('\n')].filter(Boolean).join('\n\n'),
+    );
+  return {
+    embeds: [embed],
+    components: [
+      row(
+        new StringSelectMenuBuilder()
+          .setCustomId(encodeCustomId('rvksel', userId))
+          .setPlaceholder('Выбери покупку, которую нужно снять')
+          .addOptions(
+            items.slice(0, 25).map((i) =>
+              new StringSelectMenuOptionBuilder()
+                .setValue(String(i.purchaseId))
+                // A select description renders no Discord timestamps: the dates are in the embed.
+                .setLabel(i.goodName.slice(0, 100))
+                .setDescription(paidLine(i).slice(0, 100)),
+            ),
+          ),
+      ),
+    ],
+  };
+}
+
+/**
+ * The choice (023 §1). Both buttons carry the purchase id and the period count the screen was
+ * drawn from, never an amount (002 §4): a purchase renewed meanwhile makes the panel stale.
+ */
+export function revokeConfirmView(userId: string, item: RevokeItem): View {
+  const embed = brandEmbed()
+    .setTitle('🚫 Отозвать покупку')
+    .setDescription(
+      [
+        `Игрок: <@${userId}>`,
+        `Покупка: **${item.goodName}** — ${untilLine(item.expiresAt)}`,
+        `Оплачено: **${kp(item.pricePaid)}**`,
+        '',
+        'Снять без возврата — игрок теряет покупку и деньги. Снять и вернуть монеты — покупка уходит, KP Coin возвращаются на баланс.',
+        'Игрок получит сообщение в личку.',
+      ].join('\n'),
+    );
+  return {
+    embeds: [embed],
+    components: [
+      row(
+        button(encodeCustomId('rvk', item.purchaseId, item.periods, 0), '🚫 Снять без возврата', ButtonStyle.Danger),
+        button(encodeCustomId('rvk', item.purchaseId, item.periods, 1), '↩️ Снять и вернуть монеты', ButtonStyle.Primary),
+      ),
+    ],
+  };
+}
+
+export function revokeResultView(r: RevokeResult): View {
+  const money =
+    r.refunded === null
+      ? 'KP Coin не возвращены.'
+      : `${kp(r.refunded)} вернулись игроку${r.balanceAfter === null ? '' : ` — теперь у него ${formatKp(r.balanceAfter)}`}.`;
+  const speed = r.cleaned ? '' : '\n\nДоступ в Discord уберётся в течение пары минут.';
+  // The DM can bounce (closed private messages) — never promise it was delivered (review 2026-09-20).
+  const told = r.notified ? 'Игроку отправлено сообщение в личку.' : '⚠️ У игрока закрыта личка — скажи ему сам.';
+  return {
+    embeds: [noticeEmbed(`«${r.goodName}» снято с <@${r.userId}>.\n${money}\n${told}${speed}`, '🚫 Покупка отозвана')],
+    components: [],
+  };
 }
 
 // ─── Shop settings: /настройки-магазина (014 §7, 015, 016) ──────────────────

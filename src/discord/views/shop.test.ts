@@ -2,7 +2,7 @@
 // component id decodes to a route that exists, and the texts that carry a guarantee say it.
 import type { ActionRowBuilder, EmbedBuilder, MessageActionRowComponentBuilder } from 'discord.js';
 import { describe, expect, it } from 'vitest';
-import type { GoodAdminView, GrantView, Quote, ShopOverview } from '../../modules/shop/service.js';
+import type { GoodAdminView, GrantView, Quote, RevokeItem, ShopOverview } from '../../modules/shop/service.js';
 import { DEFAULT_CLAN_PALETTE } from '../../modules/shop/kinds/clanRole.js';
 import { buttons } from '../buttons/index.js';
 import { decodeCustomId } from '../customId.js';
@@ -20,6 +20,9 @@ import {
   playerNoticeEmbed,
   purchasesView,
   quoteView,
+  revokeConfirmView,
+  revokeListView,
+  revokeResultView,
   roomNameModal,
   roomPanelView,
   shopSettingsView,
@@ -39,6 +42,17 @@ const grant = (over: Partial<GrantView> = {}): GrantView => ({
   kind: 'channel_permission',
   periods: 1,
   grantedAt: NOW,
+  expiresAt: new Date(NOW.getTime() + 10 * DAY),
+  applied: true,
+  ...over,
+});
+const revokeItem = (over: Partial<RevokeItem> = {}): RevokeItem => ({
+  purchaseId: 5,
+  goodId: 1,
+  goodName: 'Доступ к картинкам и GIF',
+  kind: 'channel_permission',
+  periods: 1,
+  pricePaid: 5000,
   expiresAt: new Date(NOW.getTime() + 10 * DAY),
   applied: true,
   ...over,
@@ -89,7 +103,27 @@ const views: [string, { embeds: EmbedBuilder[]; components: Rows }][] = [
     ),
   ],
   ['profile', profileView({ userId: U, displayName: 'Вася', avatarUrl: null, balance: 10, recent: [], grants: [grant()], dailyLine: '🎁', clan: 'owner', hasRoom: true, devNonce: 'abcdef123456', now: NOW })],
-  ['notices', { embeds: [dailyClaimedEmbed(50, 150, NOW), playerNoticeEmbed({ kind: 'grant_expiring', goodName: 'X', expiresAt: NOW }), playerNoticeEmbed({ kind: 'grant_refunded', goodName: 'X', amount: 5000 })], components: [] }],
+  [
+    'notices',
+    {
+      embeds: [
+        dailyClaimedEmbed(50, 150, NOW),
+        playerNoticeEmbed({ kind: 'grant_expiring', goodName: 'X', expiresAt: NOW }),
+        playerNoticeEmbed({ kind: 'grant_refunded', goodName: 'X', amount: 5000 }),
+        playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: null }),
+        playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: 5000 }),
+      ],
+      components: [],
+    },
+  ],
+  ['revoke list', revokeListView(U, [revokeItem()])],
+  ['revoke list empty', revokeListView(U, [])],
+  ['revoke confirm', revokeConfirmView(U, revokeItem({ periods: 3, pricePaid: 15_000 }))],
+  ['revoke done', revokeResultView({ purchaseId: 5, userId: U, goodName: 'Доступ к картинкам и GIF', kind: 'channel_permission', refunded: 5000, balanceAfter: 6000, cleaned: true, notified: true })],
+  [
+    'revoke done, private messages closed',
+    revokeResultView({ purchaseId: 5, userId: U, goodName: 'Клановая роль', kind: 'clan_role', refunded: null, balanceAfter: null, cleaned: true, notified: false }),
+  ],
 ];
 
 describe('shop views', () => {
@@ -140,6 +174,35 @@ describe('shop views', () => {
     const ids = plain.components.flatMap((r) => r.toJSON().components.map((c) => (c as { custom_id?: string }).custom_id ?? ''));
     expect(ids.some((i) => i.startsWith('kp1:dtop'))).toBe(false);
     expect(purchasesView([grant()], NOW, { dev: false }).components).toEqual([]);
+  });
+
+  it('a player with nothing active gets a clear message and no select (023 §1)', () => {
+    const view = revokeListView(U, []);
+    expect(view.components).toEqual([]);
+    expect(view.embeds[0]?.toJSON().description).toContain('нет активных покупок');
+  });
+
+  it('the list picks a purchase through a select that carries the player (023 §1)', () => {
+    const view = revokeListView(U, [revokeItem()]);
+    const select = view.components[0]?.toJSON().components[0] as { custom_id?: string; options?: { value: string }[] };
+    expect(decodeCustomId(select.custom_id ?? '')).toEqual({ action: 'rvksel', args: [U] });
+    expect(select.options?.map((o) => o.value)).toEqual(['5']);
+  });
+
+  it('both buttons carry the purchase and its period count as the guard, never an amount (002 §4, 023 §1)', () => {
+    const ids = revokeConfirmView(U, revokeItem({ periods: 3, pricePaid: 15_000 }))
+      .components[0]?.toJSON()
+      .components.map((c) => (c as { custom_id?: string }).custom_id ?? '');
+    expect(ids?.map((id) => decodeCustomId(id))).toEqual([
+      { action: 'rvk', args: ['5', '3', '0'] },
+      { action: 'rvk', args: ['5', '3', '1'] },
+    ]);
+    for (const id of ids ?? []) expect(id).not.toContain('15000');
+  });
+
+  it('the private message says whether the KP Coin came back (023 §5)', () => {
+    expect(playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: null }).toJSON().description).toContain('не возвращаются');
+    expect(playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: 5000 }).toJSON().description).toContain('5 000 KP Coin');
   });
 
   it('error texts say what to do next', () => {

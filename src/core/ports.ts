@@ -119,7 +119,9 @@ export interface VoiceSnapshot {
 /** A private message to a player; the Discord layer renders the words (views). */
 export type PlayerNotice =
   | { kind: 'grant_expiring'; goodName: string; expiresAt: Date }
-  | { kind: 'grant_refunded'; goodName: string; amount: number };
+  | { kind: 'grant_refunded'; goodName: string; amount: number }
+  /** An administrator took the purchase back; `amount` null = the KP Coin stayed spent (023 §5). */
+  | { kind: 'grant_revoked'; goodName: string; amount: number | null };
 
 /** Shop and earnings calls of the gateway; every one is idempotent and skips fake ids. */
 export interface ShopGateway {

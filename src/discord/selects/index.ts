@@ -14,6 +14,7 @@ import {
   roomCategorySelect,
   roomLimitSelect,
   roomRemoveSelect,
+  revokePurchaseSelect,
   settingsGoodSelect,
 } from './shop.js';
 
@@ -39,4 +40,6 @@ export const selects: ReadonlyMap<string, ComponentRoute<AnySelectMenuInteractio
   ['shcat', roomCategorySelect],
   ['shanc', clanAnchorSelect],
   ['shgs', settingsGoodSelect],
+  // /отозвать (decision 023)
+  ['rvksel', revokePurchaseSelect],
 ]);

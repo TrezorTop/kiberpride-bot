@@ -27,6 +27,7 @@ import {
   enableGoodButton,
   myPurchasesButton,
   newClanButton,
+  revokeButton,
   roomButton,
   roomLockButton,
   roomRenameButton,
@@ -67,4 +68,6 @@ export const buttons: ReadonlyMap<string, ComponentRoute<ButtonInteraction>> = n
   ['sshop', shopSettingsButton],
   ['ssback', settingsBackButton],
   ['shen', enableGoodButton],
+  // /отозвать (decision 023)
+  ['rvk', revokeButton],
 ]);
