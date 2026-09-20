@@ -457,8 +457,10 @@ export function revokeResultView(r: RevokeResult): View {
       ? 'KP Coin не возвращены.'
       : `${kp(r.refunded)} вернулись игроку${r.balanceAfter === null ? '' : ` — теперь у него ${formatKp(r.balanceAfter)}`}.`;
   const speed = r.cleaned ? '' : '\n\nДоступ в Discord уберётся в течение пары минут.';
+  // The DM can bounce (closed private messages) — never promise it was delivered (review 2026-09-20).
+  const told = r.notified ? 'Игроку отправлено сообщение в личку.' : '⚠️ У игрока закрыта личка — скажи ему сам.';
   return {
-    embeds: [noticeEmbed(`«${r.goodName}» снято с <@${r.userId}>.\n${money}\nИгроку отправлено сообщение в личку.${speed}`, '🚫 Покупка отозвана')],
+    embeds: [noticeEmbed(`«${r.goodName}» снято с <@${r.userId}>.\n${money}\n${told}${speed}`, '🚫 Покупка отозвана')],
     components: [],
   };
 }

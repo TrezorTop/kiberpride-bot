@@ -138,6 +138,8 @@ export interface RevokeResult {
   balanceAfter: number | null;
   /** false = Discord did not confirm within the wait: «уберётся в течение пары минут». */
   cleaned: boolean;
+  /** false = the player's private messages are closed, so the administrator must tell them. */
+  notified: boolean;
 }
 
 export interface ShopService {
@@ -849,6 +851,7 @@ export function createShopService(deps: ShopDeps): ShopService {
         refunded: done.refunded,
         balanceAfter: done.balanceAfter,
         cleaned: after?.cleanedAt != null,
+        notified: sent !== 'refused',
       };
     },
 

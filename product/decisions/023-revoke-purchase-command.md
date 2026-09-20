@@ -21,7 +21,9 @@ purchase.
    idempotent: one purchase can be refunded once (the reference `refund:<purchaseId>` already
    exists for the failed-apply refund of 014 §2).
 4. **Who may:** hidden from non-administrators, allowed by the capability `SHOP_MANAGE` (so the
-   owner can widen it in `/права`).
+   owner can widen it in `/права`). This amends 020 §1's wording: `SHOP_MANAGE` now reads
+   «управлять товарами магазина и отзывать покупки игроков» on that screen, because until now it
+   only touched goods and never a player's property.
 5. **The player is told** by a private message: what was taken, and whether the coins came back.
    The log channel keeps one line naming the administrator, the player, the good and the choice.
 
@@ -33,4 +35,14 @@ purchase.
 
 ## Consequences
 An administrator can now end any purchase. Both the movement and the choice are in the log
-channel. A revoked purchase does not stop the player buying the same good again.
+channel. A revoked purchase does not stop the player buying the same good again. The result screen
+says when the player's private messages are closed, so the administrator knows to tell them by
+hand.
+
+Filed, due 2026-09-27 (from the review of 2026-09-20):
+- a refund of a zero `pricePaid` would tell the player «0 KP Coin вернулись» — make it «no
+  refund»;
+- the confirm screen does not say «доступ ещё не выдан» for a purchase that has not been applied
+  yet, and revoking such a purchase without a refund silently cancels the automatic 30-minute
+  refund the log channel promised;
+- `revokeListView`'s unused `note` parameter.

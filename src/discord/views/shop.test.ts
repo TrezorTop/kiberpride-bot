@@ -119,7 +119,11 @@ const views: [string, { embeds: EmbedBuilder[]; components: Rows }][] = [
   ['revoke list', revokeListView(U, [revokeItem()])],
   ['revoke list empty', revokeListView(U, [])],
   ['revoke confirm', revokeConfirmView(U, revokeItem({ periods: 3, pricePaid: 15_000 }))],
-  ['revoke done', revokeResultView({ purchaseId: 5, userId: U, goodName: 'Доступ к картинкам и GIF', kind: 'channel_permission', refunded: 5000, balanceAfter: 6000, cleaned: true })],
+  ['revoke done', revokeResultView({ purchaseId: 5, userId: U, goodName: 'Доступ к картинкам и GIF', kind: 'channel_permission', refunded: 5000, balanceAfter: 6000, cleaned: true, notified: true })],
+  [
+    'revoke done, private messages closed',
+    revokeResultView({ purchaseId: 5, userId: U, goodName: 'Клановая роль', kind: 'clan_role', refunded: null, balanceAfter: null, cleaned: true, notified: false }),
+  ],
 ];
 
 describe('shop views', () => {
