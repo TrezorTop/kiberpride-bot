@@ -27,7 +27,11 @@ differ.
 ## Rejected
 - **`/выдать`.** Taken by the owner's other bot on the same server.
 - **Two commands, one to give and one to take.** One command with a sign is fewer things to
-  remember, and the confirmation says in words what will happen.
+  remember, and the result says in words what happened.
+- **A confirmation step.** A confirm button would have to carry the amount and the free text in
+  its id, which decision 002 §4 forbids, and the alternative is a table of pending adjustments. A
+  mistake is fully reversible by the same command with the opposite sign, and both movements are
+  in the ledger and in the log channel.
 - **Letting a balance go negative.** The economy's rule since decision 003 §4.
 
 ## Consequences

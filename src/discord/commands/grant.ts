@@ -46,11 +46,13 @@ export const grantCommand: CommandRoute = {
       applied: result.applied,
     };
 
-    await interaction.editReply({ embeds: [adminAdjustEmbed(outcome)] });
+    // Log BEFORE the reply: the money has committed, and a failed `editReply` would otherwise
+    // lose the audit line and invite the administrator to pay again (review 2026-09-20).
     await ctx.logging.event(
       'economy.admin_adjust',
       { actorId: actor.userId, userId: target.id, amount: outcome.amount, applied: result.applied, reference: result.entry.reference },
       adminAdjustLogLine(actor.userId, outcome),
     );
+    await interaction.editReply({ embeds: [adminAdjustEmbed(outcome)] });
   },
 };
