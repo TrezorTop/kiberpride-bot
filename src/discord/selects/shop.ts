@@ -7,7 +7,7 @@ import { intArg, snowflakeArg } from '../customId.js';
 import { actorOf, displayNames } from '../member.js';
 import { idArg, requireSettingsRight } from '../panels.js';
 import type { ComponentRoute } from '../router.js';
-import { showClanPanel, showRoomPanel, showShopSettings } from '../shopScreens.js';
+import { renderRoomPanel, showClanPanel, showShopSettings } from '../shopScreens.js';
 import { addOutcomeNote, quoteView, revokeConfirmView } from '../views/shop.js';
 
 type Route = ComponentRoute<AnySelectMenuInteraction>;
@@ -60,36 +60,40 @@ export const clanRemoveSelect: Route = {
   },
 };
 
-/** `kp1:rmlim` — 👥 how many seats the room has. */
+/** `kp1:rmlim:<roomId>` — 👥 how many seats the room has. */
 export const roomLimitSelect: Route = {
   defer: 'update',
-  async run(interaction, _args, ctx) {
+  async run(interaction, args, ctx) {
     const limit = Number(first(interaction));
-    await ctx.rooms.update(interaction.user.id, { userLimit: limit });
-    await showRoomPanel(interaction, ctx, limit === 0 ? '👥 Мест без ограничения.' : `👥 Мест в комнате: ${limit}.`);
+    const room = await ctx.rooms.update(await actorOf(interaction), idArg(args[0]), { userLimit: limit });
+    await renderRoomPanel(interaction, ctx, room, limit === 0 ? '👥 Мест без ограничения.' : `👥 Мест в комнате: ${limit}.`);
   },
 };
 
-/** `kp1:rmadd` — ➕ Пустить в комнату. */
+/** `kp1:rmadd:<roomId>` — ➕ Пустить в комнату. */
 export const roomAddSelect: Route = {
   defer: 'update',
-  async run(interaction, _args, ctx) {
+  async run(interaction, args, ctx) {
     const { ids, bots } = pickedPeople(interaction);
-    const outcome = await ctx.rooms.addGuests(interaction.user.id, ids);
+    const actor = await actorOf(interaction);
+    const roomId = idArg(args[0]);
+    const outcome = await ctx.rooms.addGuests(actor, roomId, ids);
     const refused = [...outcome.refused, ...bots.map((userId) => ({ userId, code: 'INVALID_TARGET' }))];
     const names = await displayNames(interaction, refused.map((r) => r.userId));
-    await showRoomPanel(interaction, ctx, addOutcomeNote(outcome.added, refused, names));
+    await renderRoomPanel(interaction, ctx, await ctx.rooms.forManager(actor, roomId), addOutcomeNote(outcome.added, refused, names));
   },
 };
 
-/** `kp1:rmrm` — ➖ Убрать гостя (and disconnect them). */
+/** `kp1:rmrm:<roomId>` — ➖ Убрать гостя (and disconnect them). */
 export const roomRemoveSelect: Route = {
   defer: 'update',
-  async run(interaction, _args, ctx) {
+  async run(interaction, args, ctx) {
     const userId = snowflakeArg(first(interaction));
     if (!userId) throw new DomainError('STALE_PANEL', 'bad user');
-    await ctx.rooms.removeGuest(interaction.user.id, userId);
-    await showRoomPanel(interaction, ctx, `➖ <@${userId}> больше не гость комнаты.`);
+    const actor = await actorOf(interaction);
+    const roomId = idArg(args[0]);
+    await ctx.rooms.removeGuest(actor, roomId, userId);
+    await renderRoomPanel(interaction, ctx, await ctx.rooms.forManager(actor, roomId), `➖ <@${userId}> больше не гость комнаты.`);
   },
 };
 

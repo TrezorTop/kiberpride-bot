@@ -23,6 +23,9 @@ export const ADMIN: MemberFacts = { userId: '100000000000000009', roleIds: [], i
 /** Real-looking buyer ids, 18 digits; ascending with k. */
 export const buyer = (k: number) => `4${String(k).padStart(17, '0')}`;
 
+/** An ordinary player: no roles, no rights of any kind. */
+export const player = (userId: string): MemberFacts => ({ userId, roleIds: [], isGuildOwner: false, isAdministrator: false });
+
 export interface ShopHarness {
   shop: ShopService;
   clans: ClanService;
@@ -66,7 +69,7 @@ export async function shopHarness(opts: { maxMembers?: number; applyWaitMs?: num
   return {
     shop,
     clans: createClanService({ db, shop, logging, gateway, clock }),
-    rooms: createRoomService({ db, shop, logging, gateway, clock }),
+    rooms: createRoomService({ db, shop, logging, gateway, permissions, clock }),
     economy,
     gateway,
     logging,

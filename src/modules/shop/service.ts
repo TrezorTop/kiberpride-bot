@@ -5,7 +5,7 @@
 // transaction and can be replayed from any crash point.
 import { setTimeout as sleep } from 'node:timers/promises';
 import { systemClock, type Clock } from '../../core/clock.js';
-import { DomainError } from '../../core/errors.js';
+import { DomainError, isDomainError } from '../../core/errors.js';
 import { createKeyedQueue } from '../../core/keyedQueue.js';
 import { isFakeUserId } from '../../core/match.js';
 import type { GuildGateway } from '../../core/ports.js';
@@ -21,6 +21,10 @@ import { nameProblem, normalizeName } from './names.js';
 import { problemsText } from './problems.js';
 
 export const APPLY_WAIT_MS = 8_000;
+/** `/выдать-товар`: the days an administrator may hand out at once (decision 024 §1). */
+export const GRANT_DAYS_MIN = 1;
+export const GRANT_DAYS_MAX = 365;
+export const GRANT_DAYS_DEFAULT = 30;
 export const REFUND_AFTER_MS = 30 * 60_000;
 export const WARN_BEFORE_MS = 24 * 3_600_000;
 export const DEV_EXPIRE_IN_MS = 2 * 60_000;
@@ -142,6 +146,36 @@ export interface RevokeResult {
   notified: boolean;
 }
 
+/** `/выдать-товар`: what an administrator hands out (decision 024 §1). No KP Coin move at all. */
+export interface GrantByAdminInput {
+  userId: string;
+  goodId: number;
+  /** GRANT_DAYS_MIN..GRANT_DAYS_MAX; the administrator's choice, 30 by default (024 §1). */
+  days: number;
+  /** A new clan needs its name and colour, exactly as a purchase does; ignored when extending. */
+  clan?: { name: string; colorIndex: number };
+  /** The room's first name, as `buy` takes it; the owner renames it in the panel. */
+  roomName?: string;
+  /** Only Discord knows this; a bot owns nothing. */
+  targetIsBot?: boolean;
+}
+
+export interface GrantByAdminResult {
+  purchaseId: number;
+  userId: string;
+  goodName: string;
+  kind: string;
+  days: number;
+  periods: number;
+  /** true = the player already had it and the days were added to what was left. */
+  extended: boolean;
+  expiresAt: Date;
+  /** false = Discord did not confirm within the wait: «появится в течение пары минут». */
+  applied: boolean;
+  /** false = the player's private messages are closed, so the administrator must tell them. */
+  notified: boolean;
+}
+
 export interface ShopService {
   overview(userId: string): Promise<ShopOverview>;
   grants(userId: string): Promise<GrantView[]>;
@@ -162,6 +196,10 @@ export interface ShopService {
   memberLeft(userId: string): Promise<void>;
   /** The goods as the shop settings screen shows them: problems from the cached checks. */
   adminList(actor: MemberFacts): Promise<GoodAdminView[]>;
+  /** The good a command's choice names; null = it is not in the catalogue any more. */
+  goodBySlug(slug: string): Promise<GoodRecord | null>;
+  /** `/выдать-товар`: hands a good out without a purchase (SHOP_MANAGE; decision 024 §1). */
+  grantByAdmin(actor: MemberFacts, input: GrantByAdminInput): Promise<GrantByAdminResult>;
   /** `/отозвать`: the player's ACTIVE purchases, for an administrator (SHOP_MANAGE; 023 §4). */
   revokeList(actor: MemberFacts, userId: string): Promise<RevokeItem[]>;
   /** Ends one purchase by hand, with or without giving the KP Coin back (decision 023). */
@@ -343,19 +381,22 @@ export function createShopService(deps: ShopDeps): ShopService {
     return rows.map((r) => grantViewOf(r, r.good));
   }
 
-  async function precheckOrRefuse(good: GoodRecord, bound: BoundKind, userId: string): Promise<void> {
+  /** The same gate before money and before a hand-out (024 §1): a good that cannot be applied is refused. */
+  async function precheckOrRefuse(good: GoodRecord, bound: BoundKind, userId: string, how: 'buy' | 'grant' = 'buy'): Promise<void> {
     const problems = await bound.precheck(env);
     if (problems.length === 0) return;
     await logging.failure(
       'shop.precheck_failed',
-      { goodId: good.id, userId, problems: problems.map((p) => p.code) },
-      `⚠️ ${mention(userId)} не смог купить «${good.name}»: ${problemsText(problems)}. KP Coin не списаны. Настройка: /игры → ⚙️ Настройки → 🛒 Магазин.`,
+      { goodId: good.id, userId, how, problems: problems.map((p) => p.code) },
+      `⚠️ ${
+        how === 'buy' ? `${mention(userId)} не смог купить «${good.name}»` : `«${good.name}» не удалось выдать ${mention(userId)}`
+      }: ${problemsText(problems)}. KP Coin не списаны. Настройка: /игры → ⚙️ Настройки → 🛒 Магазин.`,
     );
     throw new DomainError('SHOP_UNAVAILABLE', `good ${good.id}: ${problems.map((p) => p.code).join(',')}`);
   }
 
   /** The clan's name and colour, checked before any money moves (014 §3.2). */
-  async function clanInput(bound: BoundKind, input: BuyInput): Promise<{ name: string; color: number }> {
+  async function clanInput(bound: BoundKind, input: Pick<BuyInput, 'clan'>): Promise<{ name: string; color: number }> {
     const config = bound.config as ClanRoleConfig;
     if (!input.clan) throw new DomainError('STALE_PANEL', 'a new clan needs its name and colour');
     const colour = config.palette[input.clan.colorIndex];
@@ -366,40 +407,54 @@ export function createShopService(deps: ShopDeps): ShopService {
     return { name, color: colour.rgb };
   }
 
+  /**
+   * The rows a new grant is made of, inside the caller's transaction: the Purchase guarded by the
+   * partial unique index on ACTIVE (user, good), then the clan or the room it owns. `pricePaid` is
+   * the price for a purchase and 0 for an administrator's hand-out (024 §1); the money, when there
+   * is any, is moved by the caller in the same transaction.
+   */
+  async function insertGrant(
+    tx: Tx,
+    args: { userId: string; good: GoodRecord; pricePaid: number; expiresAt: Date | null; clan: { name: string; color: number } | null; roomName: string | null; now: Date },
+  ): Promise<number> {
+    const { userId, good, now } = args;
+    await tx.$executeRaw`INSERT INTO "User" ("id") VALUES (${userId}) ON CONFLICT ("id") DO NOTHING`;
+    // Clan membership changes lock the User rows first (clan.ts): a member being added to a
+    // clan cannot buy one at the same moment, and the reverse.
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
+    const inserted = await tx.$queryRaw<{ id: number }[]>`
+      INSERT INTO "Purchase" ("userId", "goodId", "pricePaid", "status", "periods", "grantedAt", "expiresAt")
+      VALUES (${userId}, ${good.id}, ${args.pricePaid}, 'ACTIVE', 1, ${now}, ${args.expiresAt})
+      ON CONFLICT ("userId", "goodId") WHERE "status" = 'ACTIVE' DO NOTHING
+      RETURNING "id"`;
+    const purchaseId = inserted[0]?.id;
+    if (purchaseId === undefined) throw new DomainError('ALREADY_OWNED', `user ${userId} good ${good.id}`);
+
+    if (args.clan) {
+      const member = await tx.$queryRaw<{ id: number }[]>`
+        SELECT c."id" FROM "ClanMember" m JOIN "Clan" c ON c."id" = m."clanId"
+        WHERE m."userId" = ${userId} AND c."closedAt" IS NULL LIMIT 1`;
+      if (member[0]) throw new DomainError('IN_OTHER_CLAN', `user ${userId} is in clan ${member[0].id}`);
+      const created = await tx.$queryRaw<{ id: number }[]>`
+        INSERT INTO "Clan" ("purchaseId", "ownerId", "name", "color", "createdAt")
+        VALUES (${purchaseId}, ${userId}, ${args.clan.name}, ${args.clan.color}, ${now})
+        ON CONFLICT ((lower("name"))) WHERE "closedAt" IS NULL DO NOTHING
+        RETURNING "id"`;
+      if (!created[0]) throw new DomainError('NAME_TAKEN', `clan name ${args.clan.name}`);
+    }
+    if (args.roomName !== null) {
+      await tx.personalRoom.create({ data: { purchaseId, ownerId: userId, name: args.roomName, createdAt: now } });
+    }
+    return purchaseId;
+  }
+
   async function buyNew(userId: string, good: GoodRecord, bound: BoundKind, input: BuyInput) {
     const now = clock.now();
     const clan = good.kind === 'clan_role' ? await clanInput(bound, input) : null;
     const roomName = good.kind === 'personal_room' ? roomFirstName(input.roomName) : null;
     const expiresAt = good.validityDays === null ? null : new Date(now.getTime() + days(good.validityDays));
     return withTx(db, async (tx) => {
-      await tx.$executeRaw`INSERT INTO "User" ("id") VALUES (${userId}) ON CONFLICT ("id") DO NOTHING`;
-      // Clan membership changes lock the User rows first (clan.ts): a member being added to a
-      // clan cannot buy one at the same moment, and the reverse.
-      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
-      const inserted = await tx.$queryRaw<{ id: number }[]>`
-        INSERT INTO "Purchase" ("userId", "goodId", "pricePaid", "status", "periods", "grantedAt", "expiresAt")
-        VALUES (${userId}, ${good.id}, ${good.price}, 'ACTIVE', 1, ${now}, ${expiresAt})
-        ON CONFLICT ("userId", "goodId") WHERE "status" = 'ACTIVE' DO NOTHING
-        RETURNING "id"`;
-      const purchaseId = inserted[0]?.id;
-      if (purchaseId === undefined) throw new DomainError('ALREADY_OWNED', `user ${userId} good ${good.id}`);
-
-      if (clan) {
-        const member = await tx.$queryRaw<{ id: number }[]>`
-          SELECT c."id" FROM "ClanMember" m JOIN "Clan" c ON c."id" = m."clanId"
-          WHERE m."userId" = ${userId} AND c."closedAt" IS NULL LIMIT 1`;
-        if (member[0]) throw new DomainError('IN_OTHER_CLAN', `user ${userId} is in clan ${member[0].id}`);
-        const created = await tx.$queryRaw<{ id: number }[]>`
-          INSERT INTO "Clan" ("purchaseId", "ownerId", "name", "color", "createdAt")
-          VALUES (${purchaseId}, ${userId}, ${clan.name}, ${clan.color}, ${now})
-          ON CONFLICT ((lower("name"))) WHERE "closedAt" IS NULL DO NOTHING
-          RETURNING "id"`;
-        if (!created[0]) throw new DomainError('NAME_TAKEN', `clan name ${clan.name}`);
-      }
-      if (roomName !== null) {
-        await tx.personalRoom.create({ data: { purchaseId, ownerId: userId, name: roomName, createdAt: now } });
-      }
-
+      const purchaseId = await insertGrant(tx, { userId, good, pricePaid: good.price, expiresAt, clan, roomName, now });
       const moved = await economy.move(
         {
           userId,
@@ -445,6 +500,52 @@ export function createShopService(deps: ShopDeps): ShopService {
         tx,
       );
       return { purchaseId: row.id, periods: row.periods, expiresAt: row.expiresAt, balanceAfter: moved.entry.balanceAfter };
+    });
+  }
+
+  /**
+   * A hand-out (decision 024 §1): one transaction, and `economy` is never called — the ledger says
+   * nothing, so `sum(ledger) = balance` cannot move. A player who has the good gets the days added
+   * by the same guarded UPDATE the renewal uses (`periods = $expected`, read in the same
+   * transaction because no panel carries the guard); a player who has not gets the same insert a
+   * purchase makes, with `pricePaid` 0. Two invocations at once therefore add the days once: the
+   * loser finds neither its row to update nor a free seat to insert into.
+   */
+  async function grantPeriod(userId: string, good: GoodRecord, bound: BoundKind, input: GrantByAdminInput, forDays: number) {
+    const now = clock.now();
+    const current = await db.purchase.findFirst({ where: { userId, goodId: good.id, status: 'ACTIVE' }, select: { id: true, expiresAt: true } });
+    if (current) {
+      // A good that never ends has nothing to extend; the same refusal a renewal gives (014 §1).
+      if (current.expiresAt === null) throw new DomainError('ALREADY_OWNED', `good ${good.id} is forever`);
+      return withTx(db, async (tx) => {
+        const seen = await tx.$queryRaw<{ periods: number }[]>`
+          SELECT "periods" FROM "Purchase" WHERE "id" = ${current.id} AND "status" = 'ACTIVE' AND "expiresAt" IS NOT NULL`;
+        const expected = seen[0]?.periods;
+        if (expected === undefined) throw new DomainError('GRANT_RACED', `purchase ${current.id} is no longer extendable`);
+        const rows = await tx.$queryRaw<{ id: number; periods: number; expiresAt: Date }[]>`
+          UPDATE "Purchase" SET
+            "periods" = "periods" + 1,
+            "expiresAt" = GREATEST("expiresAt", ${now}) + make_interval(days => ${forDays}::int),
+            "warnedAt" = NULL
+          WHERE "id" = ${current.id} AND "status" = 'ACTIVE' AND "periods" = ${expected} AND "expiresAt" IS NOT NULL
+          RETURNING "id", "periods", "expiresAt"`;
+        const row = rows[0];
+        if (!row) throw new DomainError('GRANT_RACED', `grant of good ${good.id} to ${userId}`);
+        return { purchaseId: row.id, periods: row.periods, expiresAt: row.expiresAt, extended: true, clanName: null as string | null };
+      });
+    }
+
+    await precheckOrRefuse(good, bound, userId, 'grant');
+    const clan = good.kind === 'clan_role' ? await clanInput(bound, input) : null;
+    const roomName = good.kind === 'personal_room' ? roomFirstName(input.roomName) : null;
+    const expiresAt = new Date(now.getTime() + days(forDays));
+    return withTx(db, async (tx) => {
+      const purchaseId = await insertGrant(tx, { userId, good, pricePaid: 0, expiresAt, clan, roomName, now }).catch((err: unknown) => {
+        // The seat was taken between the read above and this insert: the other invocation granted.
+        if (isDomainError(err) && err.code === 'ALREADY_OWNED') throw new DomainError('GRANT_RACED', `user ${userId} good ${good.id}`);
+        throw err;
+      });
+      return { purchaseId, periods: 1, expiresAt, extended: false, clanName: clan?.name ?? null };
     });
   }
 
@@ -561,9 +662,10 @@ export function createShopService(deps: ShopDeps): ShopService {
     if (!(await permissions.can(actor, Capability.SETTINGS_MANAGE))) throw new DomainError('NOT_ALLOWED', 'shop settings');
   }
 
-  /** The right, not the command's visibility, is what allows `/отозвать` (decisions 020 §3, 023 §4). */
-  async function requireShopManage(actor: MemberFacts): Promise<void> {
-    if (!(await permissions.can(actor, Capability.SHOP_MANAGE))) throw new DomainError('NOT_ALLOWED', 'revoke purchase');
+  /** The right, not the command's visibility, is what allows `/отозвать` and `/выдать-товар`
+   * (decisions 020 §3, 023 §4, 024 §2). */
+  async function requireShopManage(actor: MemberFacts, what: string): Promise<void> {
+    if (!(await permissions.can(actor, Capability.SHOP_MANAGE))) throw new DomainError('NOT_ALLOWED', what);
   }
 
   async function adminView(good: GoodRecord, mode: 'precheck' | 'validate'): Promise<GoodAdminView> {
@@ -776,8 +878,63 @@ export function createShopService(deps: ShopDeps): ShopService {
       return Promise.all(goods.map((g) => adminView(toGoodRecord(g), 'precheck')));
     },
 
+    async goodBySlug(slug) {
+      const row = await db.shopGood.findUnique({ where: { slug } });
+      return row ? toGoodRecord(row) : null;
+    },
+
+    async grantByAdmin(actor, input) {
+      await requireShopManage(actor, 'grant good');
+      if (input.targetIsBot) throw new DomainError('TARGET_IS_BOT', input.userId);
+      if (isFakeUserId(input.userId)) throw new DomainError('INVALID_TARGET', 'fake player');
+      if (!Number.isSafeInteger(input.days) || input.days < GRANT_DAYS_MIN || input.days > GRANT_DAYS_MAX) {
+        throw new DomainError('DAYS_INVALID', `days ${input.days}`);
+      }
+      const good = await loadGood(input.goodId);
+      if (!good) throw new DomainError('NOT_FOUND', `good ${input.goodId}`);
+      // A good the owner switched off is not handed out either (024 §1): the administrator is told
+      // which one and where the switch is, and nothing is written.
+      if (!good.enabled) throw new DomainError('GOOD_DISABLED', `good ${input.goodId}`, { goodName: good.name });
+      const bound = bindKind(good);
+      if (!bound) throw new DomainError('SHOP_UNAVAILABLE', `good ${input.goodId}: unknown kind or bad config`);
+
+      const done = await grantPeriod(input.userId, good, bound, input, input.days);
+
+      // The audit line first, before Discord and before the player is told: a failure below must
+      // never lose the record of what an administrator gave away (the ordering of 021 and 023).
+      await logging.event(
+        'shop.granted',
+        { purchaseId: done.purchaseId, actorId: actor.userId, userId: input.userId, goodId: good.id, days: input.days, periods: done.periods, extended: done.extended },
+        `🎁 ${mention(actor.userId)} ${done.extended ? 'продлил' : 'выдал'} «${good.name}» ${mention(input.userId)} на ${input.days} дн. — до <t:${Math.floor(
+          done.expiresAt.getTime() / 1000,
+        )}:D> (покупка #${done.purchaseId}). KP Coin не списаны.${done.clanName ? ` Клан «${done.clanName}».` : ''}`,
+      );
+
+      // Discord follows through the same convergence a purchase uses (024 §1).
+      await Promise.race([queue.enqueue(keyOf(input.userId, good.id)), sleep(applyWaitMs, undefined, { ref: false })]);
+      const after = await db.purchase.findUnique({ where: { id: done.purchaseId }, select: { appliedAt: true } });
+
+      const sent = await gateway
+        .sendDm(input.userId, { kind: 'grant_gifted', goodName: good.name, expiresAt: done.expiresAt, extended: done.extended })
+        .catch(() => 'refused' as const);
+      await logging.event('shop.grant_notified', { purchaseId: done.purchaseId, userId: input.userId, sent });
+
+      return {
+        purchaseId: done.purchaseId,
+        userId: input.userId,
+        goodName: good.name,
+        kind: good.kind,
+        days: input.days,
+        periods: done.periods,
+        extended: done.extended,
+        expiresAt: done.expiresAt,
+        applied: after?.appliedAt != null,
+        notified: sent !== 'refused',
+      };
+    },
+
     async revokeList(actor, userId) {
-      await requireShopManage(actor);
+      await requireShopManage(actor, 'revoke list');
       const rows = await db.purchase.findMany({
         where: { userId, status: 'ACTIVE' },
         include: { good: { select: { name: true, kind: true } } },
@@ -796,7 +953,7 @@ export function createShopService(deps: ShopDeps): ShopService {
     },
 
     async revoke(actor, { purchaseId, expectedPeriods, refund }) {
-      await requireShopManage(actor);
+      await requireShopManage(actor, 'revoke purchase');
       // Read for the texts only; what decides is the guarded UPDATE below.
       const before = await db.purchase.findUnique({ where: { id: purchaseId }, include: { good: { select: { name: true, kind: true } } } });
       if (!before) throw new DomainError('NOT_FOUND', `purchase ${purchaseId}`);

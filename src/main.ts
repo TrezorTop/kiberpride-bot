@@ -73,7 +73,7 @@ async function main(): Promise<void> {
   });
   const shop = createShopService({ db, economy, permissions, logging, gateway, nodeEnv: env.NODE_ENV, clock: systemClock });
   const clans = createClanService({ db, shop, logging, gateway, clock: systemClock });
-  const rooms = createRoomService({ db, shop, logging, gateway, clock: systemClock });
+  const rooms = createRoomService({ db, shop, logging, gateway, permissions, clock: systemClock });
   const earnings = createEarningsService({ db, economy, settings, logging, clock: systemClock });
   const ctx: AppContext = {
     economy,

@@ -3,10 +3,12 @@
 // name as typed; the services normalise and check both.
 import type { ModalSubmitInteraction } from 'discord.js';
 import { DomainError } from '../../core/errors.js';
-import { idArg } from '../panels.js';
+import { snowflakeArg } from '../customId.js';
+import { actorOf } from '../member.js';
+import { idArg, versionOf } from '../panels.js';
 import type { ComponentRoute } from '../router.js';
-import { showClanPanel, showRoomPanel } from '../shopScreens.js';
-import { buyResultView, CLAN_FIELDS, ROOM_FIELDS } from '../views/shop.js';
+import { renderRoomPanel, showClanPanel } from '../shopScreens.js';
+import { buyResultView, CLAN_FIELDS, grantGoodResultView, ROOM_FIELDS } from '../views/shop.js';
 
 type Route = ComponentRoute<ModalSubmitInteraction>;
 
@@ -26,6 +28,25 @@ export const newClanModal: Route = {
   },
 };
 
+/**
+ * `kp1:shgcl:<goodId>:<userId>:<days>` — an administrator hands a clan to a player: the same form
+ * the shop uses, and the same name rules (decision 024 §1). SHOP_MANAGE is checked in the service.
+ */
+export const grantClanModal: Route = {
+  defer: 'ephemeral',
+  async run(interaction, args, ctx) {
+    const userId = snowflakeArg(args[1]);
+    if (!userId) throw new DomainError('STALE_PANEL', 'bad player id');
+    const result = await ctx.shop.grantByAdmin(await actorOf(interaction), {
+      userId,
+      goodId: idArg(args[0]),
+      days: versionOf(args[2]),
+      clan: clanFields(interaction),
+    });
+    await interaction.editReply(grantGoodResultView(result));
+  },
+};
+
 /** `kp1:clrenf` — the owner renames and recolours the clan. */
 export const clanRenameModal: Route = {
   defer: 'ephemeral',
@@ -35,11 +56,11 @@ export const clanRenameModal: Route = {
   },
 };
 
-/** `kp1:rmnamef` — the owner renames the room. */
+/** `kp1:rmnamef:<roomId>` — the room's owner, or an administrator, renames it (024 §4). */
 export const roomRenameModal: Route = {
   defer: 'ephemeral',
-  async run(interaction, _args, ctx) {
-    const room = await ctx.rooms.update(interaction.user.id, { name: interaction.fields.getTextInputValue(ROOM_FIELDS.name) });
-    await showRoomPanel(interaction, ctx, `✏️ Комната теперь называется «${room.name}».`);
+  async run(interaction, args, ctx) {
+    const room = await ctx.rooms.update(await actorOf(interaction), idArg(args[0]), { name: interaction.fields.getTextInputValue(ROOM_FIELDS.name) });
+    await renderRoomPanel(interaction, ctx, room, `✏️ Комната теперь называется «${room.name}».`);
   },
 };

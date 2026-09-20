@@ -47,6 +47,9 @@ const DOMAIN_ERROR_TEXT: Record<DomainErrorCode, string> = {
   AMOUNT_INVALID: 'Сумма должна быть от -1 000 000 до 1 000 000 и не ноль. Со знаком минус — снять KP Coin.',
   BALANCE_TOO_LOW: 'У игрока столько нет — снять больше, чем есть, нельзя. Ничего не изменилось.',
   TARGET_IS_BOT: 'Ботам KP Coin не начисляются 🙂 Выбери игрока.',
+  // /выдать-товар (decision 024): both reach an administrator, not a player.
+  DAYS_INVALID: 'Срок должен быть от 1 до 365 дней.',
+  GRANT_RACED: 'Не получилось: покупка игрока изменилась в эту же секунду. Повтори команду.',
 };
 
 /** Why a clan or room name was refused (NameProblem, modules/shop/names.ts). */
@@ -95,6 +98,11 @@ export function domainErrorText(err: { code: DomainErrorCode; params?: DomainErr
   }
   if (err.code === 'BALANCE_TOO_LOW' && err.params?.balance !== undefined) {
     return `У игрока сейчас ${formatKp(err.params.balance)} — снять больше нельзя. Ничего не изменилось.`;
+  }
+  // An administrator handing a good out is told WHICH good is off and where to switch it on
+  // (decision 024 §1); a player who ran into a disabled good still gets the /магазин line.
+  if (err.code === 'GOOD_DISABLED' && err.params?.goodName) {
+    return `«${err.params.goodName}» сейчас выключён — включи его в /настройки-магазина и выдай ещё раз.`;
   }
   if (err.code === 'NAME_INVALID' && err.params?.reason) {
     return `${NAME_PROBLEM_TEXT[err.params.reason] ?? DOMAIN_ERROR_TEXT.NAME_INVALID} Попробуй ещё раз.`;

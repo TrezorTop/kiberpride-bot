@@ -26,7 +26,7 @@ import type { Problem } from '../../modules/shop/kinds/index.js';
 import { NAME_MAX, NAME_MIN } from '../../modules/shop/names.js';
 import { problemText } from '../../modules/shop/problems.js';
 import { MAX_GUESTS, ROOM_LIMITS, type RoomView } from '../../modules/shop/room.js';
-import type { BuyResult, GoodAdminView, GrantView, Quote, RevokeItem, RevokeResult, ShopOverview } from '../../modules/shop/service.js';
+import type { BuyResult, GoodAdminView, GrantByAdminResult, GrantView, Quote, RevokeItem, RevokeResult, ShopOverview } from '../../modules/shop/service.js';
 import { encodeCustomId } from '../customId.js';
 import { formatKp, formatLedgerLine, groupDigits, CURRENCY } from './format.js';
 import { brandEmbed, noticeEmbed } from './style.js';
@@ -152,8 +152,15 @@ export function buyResultView(r: BuyResult): View {
 
 // ─── Clan (014 §3.2, 015 §3) ────────────────────────────────────────────────
 
-/** The name-and-colour form: a new clan (`shclan:<goodId>`) or a rename (`clrenf`). */
-export function clanModal(palette: ClanView['palette'], target: { goodId: number } | { rename: true }, current?: { name: string; color: number }): ModalBuilder {
+/**
+ * The name-and-colour form: a new clan (`shclan:<goodId>`), a hand-out of one to a player
+ * (`shgcl:<goodId>:<userId>:<days>`, decision 024 §1) or a rename (`clrenf`).
+ */
+export function clanModal(
+  palette: ClanView['palette'],
+  target: { goodId: number } | { goodId: number; userId: string; days: number } | { rename: true },
+  current?: { name: string; color: number },
+): ModalBuilder {
   const name = new TextInputBuilder()
     .setCustomId(CLAN_FIELDS.name)
     .setStyle(TextInputStyle.Short)
@@ -172,8 +179,13 @@ export function clanModal(palette: ClanView['palette'], target: { goodId: number
         return p.emoji ? option.setEmoji(p.emoji) : option;
       }),
     );
+  const customId = !('goodId' in target)
+    ? encodeCustomId('clrenf')
+    : 'userId' in target
+      ? encodeCustomId('shgcl', target.goodId, target.userId, target.days)
+      : encodeCustomId('shclan', target.goodId);
   return new ModalBuilder()
-    .setCustomId('goodId' in target ? encodeCustomId('shclan', target.goodId) : encodeCustomId('clrenf'))
+    .setCustomId(customId)
     .setTitle('goodId' in target ? '🛡️ Новый клан' : '✏️ Название и цвет клана')
     .addLabelComponents(
       new LabelBuilder()
@@ -230,7 +242,7 @@ export function clanPanelView(c: ClanView, names: Names, now: Date, note?: strin
 
 // ─── Personal room (014 §3.3) ───────────────────────────────────────────────
 
-export function roomNameModal(current: string): ModalBuilder {
+export function roomNameModal(roomId: number, current: string): ModalBuilder {
   const name = new TextInputBuilder()
     .setCustomId(ROOM_FIELDS.name)
     .setStyle(TextInputStyle.Short)
@@ -239,24 +251,38 @@ export function roomNameModal(current: string): ModalBuilder {
     .setRequired(true)
     .setValue(current);
   return new ModalBuilder()
-    .setCustomId(encodeCustomId('rmnamef'))
+    .setCustomId(encodeCustomId('rmnamef', roomId))
     .setTitle('✏️ Название комнаты')
     .addLabelComponents(new LabelBuilder().setLabel('Название').setDescription('Буквы, цифры, эмодзи, пробел и - _ . ! ?').setTextInputComponent(name));
 }
 
-export function roomPanelView(r: RoomView, names: Names, now: Date, note?: string): View {
+/**
+ * The room panel. Every component carries the room's id, so an administrator opening someone
+ * else's room through `/комната <игрок>` presses on the right room (decision 024 §4); `viewerId`
+ * only decides the wording.
+ */
+export function roomPanelView(r: RoomView, names: Names, now: Date, opts: { note?: string; viewerId?: string } = {}): View {
   const guests = r.guestIds.length > 0 ? r.guestIds.map((id) => `<@${id}>`).join('\n') : 'Пока никого';
+  const managing = opts.viewerId !== undefined && opts.viewerId !== r.ownerId;
   const embed = brandEmbed()
     .setTitle(`🏠 ${r.name}`)
-    .setDescription([note, r.channelId ? `Канал: <#${r.channelId}>` : '⏳ Комната создаётся — загляни через минуту.'].filter(Boolean).join('\n\n'))
+    .setDescription(
+      [
+        opts.note,
+        managing ? `Комната <@${r.ownerId}> — ты меняешь её как администратор.` : null,
+        r.channelId ? `Канал: <#${r.channelId}>` : '⏳ Комната создаётся — загляни через минуту.',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    )
     .addFields(
-      { name: 'Вход', value: r.locked ? '🔒 только ты и гости' : '🔓 открыт для всех', inline: true },
+      { name: 'Вход', value: r.locked ? (managing ? '🔒 только владелец и гости' : '🔒 только ты и гости') : '🔓 открыт для всех', inline: true },
       { name: 'Мест', value: r.userLimit === 0 ? 'без ограничения' : String(r.userLimit), inline: true },
       { name: 'Срок', value: r.expiresAt ? grantStateText({ applied: r.applied, expiresAt: r.expiresAt }, now) : '✅ навсегда', inline: true },
       { name: `Гости: ${r.guestIds.length}/${MAX_GUESTS}`, value: guests },
     );
   const limit = new StringSelectMenuBuilder()
-    .setCustomId(encodeCustomId('rmlim'))
+    .setCustomId(encodeCustomId('rmlim', r.roomId))
     .setPlaceholder('👥 Сколько мест в комнате')
     .addOptions(
       ROOM_LIMITS.map((n) =>
@@ -268,10 +294,10 @@ export function roomPanelView(r: RoomView, names: Names, now: Date, note?: strin
     );
   const components: Row[] = [
     row(
-      button(encodeCustomId('rmname'), '✏️ Название', ButtonStyle.Secondary),
+      button(encodeCustomId('rmname', r.roomId), '✏️ Название', ButtonStyle.Secondary),
       r.locked
-        ? button(encodeCustomId('rmlock', 0), '🔓 Открыть для всех', ButtonStyle.Secondary)
-        : button(encodeCustomId('rmlock', 1), '🔒 Закрыть', ButtonStyle.Secondary),
+        ? button(encodeCustomId('rmlock', r.roomId, 0), '🔓 Открыть для всех', ButtonStyle.Secondary)
+        : button(encodeCustomId('rmlock', r.roomId, 1), '🔒 Закрыть', ButtonStyle.Secondary),
     ),
     row(limit),
   ];
@@ -279,7 +305,7 @@ export function roomPanelView(r: RoomView, names: Names, now: Date, note?: strin
     components.push(
       row(
         new UserSelectMenuBuilder()
-          .setCustomId(encodeCustomId('rmadd'))
+          .setCustomId(encodeCustomId('rmadd', r.roomId))
           .setPlaceholder('➕ Пустить в комнату')
           .setMinValues(1)
           .setMaxValues(Math.min(MAX_GUESTS - r.guestIds.length, 25)),
@@ -290,7 +316,7 @@ export function roomPanelView(r: RoomView, names: Names, now: Date, note?: strin
     components.push(
       row(
         new StringSelectMenuBuilder()
-          .setCustomId(encodeCustomId('rmrm'))
+          .setCustomId(encodeCustomId('rmrm', r.roomId))
           .setPlaceholder('➖ Убрать гостя')
           .addOptions(r.guestIds.slice(0, 25).map((id) => new StringSelectMenuOptionBuilder().setValue(id).setLabel(nameOf(id, names).slice(0, 100)))),
       ),
@@ -376,19 +402,33 @@ export function playerNoticeEmbed(n: PlayerNotice): EmbedBuilder {
         '↩️ KP Coin возвращены',
       );
     case 'grant_revoked':
+      // A gifted purchase paid 0, so there is nothing to send back — never «0 KP Coin» (023 F5).
       return noticeEmbed(
         `Администратор снял с тебя «${n.goodName}».\n${
-          n.amount === null ? 'KP Coin за покупку не возвращаются.' : `${kp(n.amount)} вернулись на твой баланс.`
+          n.amount ? `${kp(n.amount)} вернулись на твой баланс.` : 'KP Coin за покупку не возвращаются.'
         }\nЕсли это кажется ошибкой — напиши администраторам сервера KiberPride 🙂`,
         '🚫 Покупка отозвана',
+      );
+    case 'grant_gifted':
+      return noticeEmbed(
+        `${n.extended ? `Администратор продлил тебе «${n.goodName}»` : `Администратор выдал тебе «${n.goodName}»`} — до <t:${unix(n.expiresAt)}:D>.\n` +
+          'Это подарок: KP Coin с твоего баланса не списывались 🎁',
+        '🎁 Подарок от администрации',
       );
   }
 }
 
 // ─── /отозвать (decision 023) ───────────────────────────────────────────────
 
-/** «оплачено 5 000 KP Coin», or the running total when the purchase was renewed (014 §1). */
-const paidLine = (item: Pick<RevokeItem, 'pricePaid' | 'periods'>) => `оплачено ${kp(item.pricePaid)}${item.periods > 1 ? ' за всё время' : ''}`;
+/**
+ * «оплачено 5 000 KP Coin», the running total when the purchase was renewed (014 §1) — or, for a
+ * good an administrator handed out, the plain truth: nothing was paid, so nothing comes back
+ * (decision 024, «Consequences»; the filed item F5 of 023).
+ */
+const GIFTED_LINE = 'возвращать нечего — товар был выдан вручную';
+const GIFTED_SENTENCE = 'Возвращать нечего — товар был выдан вручную.';
+const paidLine = (item: Pick<RevokeItem, 'pricePaid' | 'periods'>) =>
+  item.pricePaid <= 0 ? GIFTED_LINE : `оплачено ${kp(item.pricePaid)}${item.periods > 1 ? ' за всё время' : ''}`;
 
 const untilLine = (expiresAt: Date | null) => (expiresAt ? `до <t:${unix(expiresAt)}:D>` : 'навсегда');
 
@@ -428,34 +468,39 @@ export function revokeListView(userId: string, items: readonly RevokeItem[], not
  * drawn from, never an amount (002 §4): a purchase renewed meanwhile makes the panel stale.
  */
 export function revokeConfirmView(userId: string, item: RevokeItem): View {
+  const gifted = item.pricePaid <= 0;
   const embed = brandEmbed()
     .setTitle('🚫 Отозвать покупку')
     .setDescription(
       [
         `Игрок: <@${userId}>`,
         `Покупка: **${item.goodName}** — ${untilLine(item.expiresAt)}`,
-        `Оплачено: **${kp(item.pricePaid)}**`,
+        gifted ? `Оплачено: **—**, ${GIFTED_LINE}.` : `Оплачено: **${kp(item.pricePaid)}**`,
         '',
-        'Снять без возврата — игрок теряет покупку и деньги. Снять и вернуть монеты — покупка уходит, KP Coin возвращаются на баланс.',
+        gifted
+          ? 'Игрок потеряет доступ сразу. KP Coin не двигаются — их за этот товар и не платили.'
+          : 'Снять без возврата — игрок теряет покупку и деньги. Снять и вернуть монеты — покупка уходит, KP Coin возвращаются на баланс.',
         'Игрок получит сообщение в личку.',
       ].join('\n'),
     );
-  return {
-    embeds: [embed],
-    components: [
-      row(
+  // Nothing was paid, so «вернуть монеты» would return 0: the choice is not offered (023 F5).
+  const buttons = gifted
+    ? [button(encodeCustomId('rvk', item.purchaseId, item.periods, 0), '🚫 Снять', ButtonStyle.Danger)]
+    : [
         button(encodeCustomId('rvk', item.purchaseId, item.periods, 0), '🚫 Снять без возврата', ButtonStyle.Danger),
         button(encodeCustomId('rvk', item.purchaseId, item.periods, 1), '↩️ Снять и вернуть монеты', ButtonStyle.Primary),
-      ),
-    ],
-  };
+      ];
+  return { embeds: [embed], components: [row(...buttons)] };
 }
 
 export function revokeResultView(r: RevokeResult): View {
   const money =
     r.refunded === null
       ? 'KP Coin не возвращены.'
-      : `${kp(r.refunded)} вернулись игроку${r.balanceAfter === null ? '' : ` — теперь у него ${formatKp(r.balanceAfter)}`}.`;
+      : // A refund of a gifted purchase moves 0: say why, never «0 KP Coin вернулись» (023 F5).
+        r.refunded <= 0
+        ? GIFTED_SENTENCE
+        : `${kp(r.refunded)} вернулись игроку${r.balanceAfter === null ? '' : ` — теперь у него ${formatKp(r.balanceAfter)}`}.`;
   const speed = r.cleaned ? '' : '\n\nДоступ в Discord уберётся в течение пары минут.';
   // The DM can bounce (closed private messages) — never promise it was delivered (review 2026-09-20).
   const told = r.notified ? 'Игроку отправлено сообщение в личку.' : '⚠️ У игрока закрыта личка — скажи ему сам.';
@@ -463,6 +508,43 @@ export function revokeResultView(r: RevokeResult): View {
     embeds: [noticeEmbed(`«${r.goodName}» снято с <@${r.userId}>.\n${money}\n${told}${speed}`, '🚫 Покупка отозвана')],
     components: [],
   };
+}
+
+// ─── /выдать-товар и /комната (decision 024) ────────────────────────────────
+
+/** What the administrator sees after a hand-out: who got what, until when, and at whose cost. */
+export function grantGoodResultView(r: GrantByAdminResult): View {
+  const head = r.extended ? `«${r.goodName}» продлено для <@${r.userId}>` : `«${r.goodName}» выдано <@${r.userId}>`;
+  const speed = r.applied ? '' : '\n\nДоступ в Discord появится в течение пары минут.';
+  const told = r.notified ? 'Игроку отправлено сообщение в личку.' : '⚠️ У игрока закрыта личка — скажи ему сам.';
+  const hint = r.kind === 'personal_room' ? '\n\nНастроить его комнату можно через /комната с указанием игрока.' : '';
+  return {
+    embeds: [
+      noticeEmbed(
+        `🎁 ${head} на ${r.days} дн. — до <t:${unix(r.expiresAt)}:D>.\nKP Coin с игрока не списаны.\n${told}${speed}${hint}`,
+        r.extended ? '🎁 Срок продлён' : '🎁 Товар выдан',
+      ),
+    ],
+    components: [],
+  };
+}
+
+/**
+ * A clan hand-out asks for a name and a colour first (024 §1). A slash command is already
+ * answered, so the form opens from a button, exactly as buying a clan does (014 §10).
+ */
+export function grantClanPromptView(g: { goodId: number; goodName: string; userId: string; days: number }): View {
+  const embed = brandEmbed()
+    .setTitle('🎁 Выдать товар')
+    .setDescription(
+      [`Игрок: <@${g.userId}>`, `Товар: **${g.goodName}** на ${g.days} дн.`, '', 'Клану нужны название и цвет — придумай их за игрока, он сможет поменять их сам.'].join('\n'),
+    );
+  return { embeds: [embed], components: [row(button(encodeCustomId('shgcn', g.goodId, g.userId, g.days), '✏️ Название и цвет клана', ButtonStyle.Success))] };
+}
+
+/** `/комната <игрок>` for a player who has none: an answer, not an error. */
+export function noRoomView(userId: string): View {
+  return { embeds: [noticeEmbed(`У <@${userId}> нет личной комнаты. Её можно купить в /магазин — или выдать через /выдать-товар 🏠`, '🏠 Комната')], components: [] };
 }
 
 // ─── Shop settings: /настройки-магазина (014 §7, 015, 016) ──────────────────

@@ -56,7 +56,8 @@ describe('deferFor (decisions 007 §1, 008 §3)', () => {
     const { selects } = await import('./selects/index.js');
     const { modals } = await import('./modals/index.js');
     const modalRoutes = [...buttons, ...selects, ...modals].filter(([, r]) => r.defer === 'modal').map(([a]) => a);
-    // New game, new clan, clan rename, room rename — each shows a modal as its first response.
-    expect(modalRoutes.sort()).toEqual(['clren', 'mnew', 'rmname', 'shcnew']);
+    // New game, new clan, a clan handed out (024 §1), clan rename, room rename — each shows a
+    // modal as its first response.
+    expect(modalRoutes.sort()).toEqual(['clren', 'mnew', 'rmname', 'shcnew', 'shgcn']);
   });
 });

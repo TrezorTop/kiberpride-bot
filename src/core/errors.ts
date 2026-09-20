@@ -41,6 +41,9 @@ export const DOMAIN_ERROR_CODES = [
   'AMOUNT_INVALID',
   'BALANCE_TOO_LOW',
   'TARGET_IS_BOT',
+  // Handing a good out by hand: /выдать-товар (decision 024)
+  'DAYS_INVALID',
+  'GRANT_RACED',
 ] as const;
 
 export type DomainErrorCode = (typeof DOMAIN_ERROR_CODES)[number];
@@ -54,6 +57,8 @@ export interface DomainErrorParams {
   reason?: string;
   /** A player's current KP, so a refusal can say how much there actually is (decision 021 §1). */
   balance?: number;
+  /** The good a refusal is about, so an administrator is told WHICH one (decision 024 §1). */
+  goodName?: string;
 }
 
 export class DomainError extends Error {
