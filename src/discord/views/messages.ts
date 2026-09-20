@@ -1,6 +1,7 @@
 // Player-facing text that is not tied to one screen (rule plain-language §8): warm, short,
 // always says what to do next. Details of a failure go to the log channel, never here.
 import type { DomainErrorCode, DomainErrorParams } from '../../core/errors.js';
+import { formatKp } from './format.js';
 
 export const STALE_COMPONENT = 'Эта кнопка устарела — открой меню заново 🙂';
 export const UNEXPECTED_ERROR = 'Что-то пошло не так. Попробуй ещё раз через минуту — администраторы уже в курсе.';
@@ -42,6 +43,10 @@ const DOMAIN_ERROR_TEXT: Record<DomainErrorCode, string> = {
   NOT_A_MEMBER: 'Этого игрока там уже нет — открой панель заново.',
   ROLE_NOT_GRANTABLE:
     'Права нельзя выдать роли @everyone и служебным ролям (боты, бустеры, интеграции) — выбери обычные роли сервера. Ничего не изменилось.',
+  // /начислить (decision 021): these three reach an administrator, not a player.
+  AMOUNT_INVALID: 'Сумма должна быть от -1 000 000 до 1 000 000 и не ноль. Со знаком минус — снять KP Coin.',
+  BALANCE_TOO_LOW: 'У игрока столько нет — снять больше, чем есть, нельзя. Ничего не изменилось.',
+  TARGET_IS_BOT: 'Ботам KP Coin не начисляются 🙂 Выбери игрока.',
 };
 
 /** Why a clan or room name was refused (NameProblem, modules/shop/names.ts). */
@@ -87,6 +92,9 @@ export function domainErrorText(err: { code: DomainErrorCode; params?: DomainErr
   }
   if (err.code === 'ALREADY_CLAIMED' && err.params?.at) {
     return `Сегодняшний бонус уже у тебя 🎁 Следующий — <t:${Math.floor(err.params.at.getTime() / 1000)}:R>.`;
+  }
+  if (err.code === 'BALANCE_TOO_LOW' && err.params?.balance !== undefined) {
+    return `У игрока сейчас ${formatKp(err.params.balance)} — снять больше нельзя. Ничего не изменилось.`;
   }
   if (err.code === 'NAME_INVALID' && err.params?.reason) {
     return `${NAME_PROBLEM_TEXT[err.params.reason] ?? DOMAIN_ERROR_TEXT.NAME_INVALID} Попробуй ещё раз.`;

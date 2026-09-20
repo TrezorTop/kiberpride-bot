@@ -26,10 +26,10 @@ it; saving replaces that list, so a role left out loses the right at once. @ever
 of bots cannot be given a right.
 
 **Who sees which command:** `/баланс`, `/профиль`, `/магазин` and `/бонус` are in everyone's list.
-`/игры`, `/настройки-магазина` and `/права` are hidden from everyone but members whose role carries
-Discord's «Администратор» — the owner shows `/игры` to the organisers in Настройки сервера →
-Интеграции → KiberPride Bot. Seeing a command grants nothing: every screen still asks the rights
-above and politely refuses whoever lacks them.
+`/игры`, `/настройки-магазина`, `/права` and `/начислить` are hidden from everyone but members whose
+role carries Discord's «Администратор» — the owner shows `/игры` to the organisers in Настройки
+сервера → Интеграции → KiberPride Bot. Seeing a command grants nothing: every screen still asks the
+rights above and politely refuses whoever lacks them.
 
 ## 1. Economy — KP Coin
 
@@ -60,6 +60,17 @@ channel. Amounts are configuration.
 - `/профиль` also shows the purchases with their end dates and the clan and room buttons.
 - For tests only (never on the live server): the guild owner sees «🧪 +10 000 KP Coin» in
   `/профиль` and «🧪 Закончить через 2 минуты» on a purchase in «🛍️ Мои покупки».
+
+**KP Coin by hand (decision 021):** `/начислить <игрок> <сколько> [за что]` — an administrator
+gives a player KP Coin, or takes them back by putting a minus before the amount (at most a million
+either way). A balance never goes below zero: taking more than the player has is refused with a
+message saying how much there is, and nothing moves. «За что» is free text and becomes the player's
+history line («+500 KP Coin — приз за турнир»); left empty it reads «начислено администратором».
+The player is not pinged — the movement simply shows up in their history — and the log channel keeps
+one line naming the administrator, the player, the amount and the reason. The command is hidden from
+non-administrators, but the right that allows it is «смотреть чужую историю и начислять KP Coin
+вручную», so the owner can widen it in `/права`. Repeating the same command twice is two
+movements; one command delivered twice pays once.
 
 Planned later, so the design must leave room: activity bonuses, tasks, achievements, transfers
 between users, leaderboards, cases, more KP sources.
@@ -233,7 +244,9 @@ expiry, renewal and refund are listed in §2; the new earnings in §1.
 
 ---
 
-Last verified: 2026-09-20 («Roles on the server» «as built»: rights are given to roles on `/права`,
+Last verified: 2026-09-20 (§1: `/начислить` moves KP Coin by hand in both directions, decision 021
+— checked by the automated suite, not yet walked on the live server; «Roles on the server» «as
+built»: rights are given to roles on `/права`,
 and the three admin commands are hidden from non-administrators — checked by the automated suite,
 not yet walked on the live server; §1, §2, §10 «as built» notes with the shop and earnings step,
 decisions 014–015 — checked by the automated suite, not yet walked on the test server; §1, §2,
