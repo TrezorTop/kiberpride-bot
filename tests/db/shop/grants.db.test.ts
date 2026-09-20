@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { runGrantsPass } from '../../../src/jobs/grants.js';
 import { testDb } from '../helpers.js';
-import { balanceOf, buyer, DAY, expectShopInvariants, fund, mediaRoleId, shopHarness } from './harness.js';
+import { ADMIN, balanceOf, buyer, DAY, expectShopInvariants, fund, mediaRoleId, shopHarness } from './harness.js';
 
 const U = buyer(1);
 const MIN = 60_000;
@@ -120,6 +120,40 @@ describe('retry and refund (014 §2)', () => {
     const refunds = await testDb().kpTransaction.findMany({ where: { reference: `refund:${r.purchaseId}` } });
     expect(refunds).toHaveLength(1);
     expect(h.gateway.dms.filter((d) => d.notice.kind === 'grant_refunded')).toHaveLength(1);
+    await expectShopInvariants();
+  });
+
+  // The twin of the test above for a hand-out (024 §1): `pricePaid` is 0, so there is no money to
+  // give back. The row must still leave ACTIVE and the pass must stop failing — otherwise every
+  // retry throws forever while the earlier «KP Coin вернутся» line has already promised a refund.
+  it('a handed-out good that never applies ends without a refund, and the pass stops failing', async () => {
+    const h = await shopHarness({ applyWaitMs: 50 });
+    h.gateway.failRoleOps = true;
+    const r = await h.shop.grantByAdmin(ADMIN, { userId: U, goodId: h.goods.media, days: 30 });
+    await h.shop.idle();
+    expect(r.applied).toBe(false);
+
+    h.clock.advance(31 * MIN);
+    await expect(h.shop.retryPass(h.clock.now())).resolves.toBeGreaterThan(0);
+    await h.shop.idle();
+
+    const row = await testDb().purchase.findUniqueOrThrow({ where: { id: r.purchaseId } });
+    expect(row.status).not.toBe('ACTIVE');
+    expect(row.pricePaid).toBe(0);
+    // Nothing was ever paid, so nothing comes back: the ledger stays empty and balances hold.
+    expect(await testDb().kpTransaction.findMany({ where: { userId: U } })).toEqual([]);
+    expect(await balanceOf(U)).toBe(0);
+    // A pass that throws is only ever seen in the process log — the queue swallows it (014 §2).
+    expect(h.logging.events.filter((e) => e.name === 'shop.reconcile_failed')).toEqual([]);
+    expect(h.logging.events.find((e) => e.name === 'shop.refunded')?.audit).not.toMatch(/0 KP Coin/);
+
+    // The next minute only retries taking the role back (Discord is still broken) — it never ends
+    // the purchase a second time and never writes a KP Coin row.
+    h.clock.advance(MIN);
+    await h.shop.retryPass(h.clock.now());
+    await h.shop.idle();
+    expect(h.logging.events.filter((e) => e.name === 'shop.refunded')).toHaveLength(1);
+    expect(await testDb().kpTransaction.findMany({ where: { userId: U } })).toEqual([]);
     await expectShopInvariants();
   });
 

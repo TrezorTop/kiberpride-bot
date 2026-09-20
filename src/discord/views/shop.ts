@@ -397,10 +397,14 @@ export function playerNoticeEmbed(n: PlayerNotice): EmbedBuilder {
         '⏳ Скоро закончится покупка',
       );
     case 'grant_refunded':
-      return noticeEmbed(
-        `Не получилось выдать «${n.goodName}» — прости! ${kp(n.amount)} вернулись на твой баланс. Администраторы уже разбираются.`,
-        '↩️ KP Coin возвращены',
-      );
+      // A handed-out good paid nothing, so there is nothing to send back — never «0 KP Coin
+      // вернулись» (decision 024, «Consequences»; architect review 2026-09-20, M1).
+      return n.amount > 0
+        ? noticeEmbed(`Не получилось выдать «${n.goodName}» — прости! ${kp(n.amount)} вернулись на твой баланс. Администраторы уже разбираются.`, '↩️ KP Coin возвращены')
+        : noticeEmbed(
+            `Не получилось выдать «${n.goodName}» — прости! Это был подарок, KP Coin с тебя не списывались, так что возвращать нечего. Администраторы уже разбираются.`,
+            '↩️ Не получилось выдать',
+          );
     case 'grant_revoked':
       // A gifted purchase paid 0, so there is nothing to send back — never «0 KP Coin» (023 F5).
       return noticeEmbed(

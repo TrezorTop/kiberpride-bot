@@ -139,6 +139,7 @@ const views: [string, { embeds: EmbedBuilder[]; components: Rows }][] = [
         dailyClaimedEmbed(50, 150, NOW),
         playerNoticeEmbed({ kind: 'grant_expiring', goodName: 'X', expiresAt: NOW }),
         playerNoticeEmbed({ kind: 'grant_refunded', goodName: 'X', amount: 5000 }),
+        playerNoticeEmbed({ kind: 'grant_refunded', goodName: 'X', amount: 0 }),
         playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: null }),
         playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: 5000 }),
       ],
@@ -256,6 +257,13 @@ describe('shop views', () => {
     expect(done.embeds[0]?.toJSON().description).toContain('Возвращать нечего — товар был выдан вручную.');
     expect(done.embeds[0]?.toJSON().description).not.toContain('0 KP Coin');
     expect(playerNoticeEmbed({ kind: 'grant_revoked', goodName: 'X', amount: 0 }).toJSON().description).not.toContain('0 KP Coin');
+
+    // The same for a hand-out that Discord never managed to apply: it is ended, not refunded
+    // (architect review 2026-09-20, M1).
+    const failed = playerNoticeEmbed({ kind: 'grant_refunded', goodName: 'X', amount: 0 }).toJSON();
+    expect(failed.description).not.toContain('0 KP Coin');
+    expect(failed.description).toContain('возвращать нечего');
+    expect(playerNoticeEmbed({ kind: 'grant_refunded', goodName: 'X', amount: 5000 }).toJSON().description).toContain('5 000 KP Coin вернулись');
   });
 
   it('a hand-out says who got what, until when, and that nothing was paid (024 §1)', () => {

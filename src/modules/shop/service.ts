@@ -611,14 +611,23 @@ export function createShopService(deps: ShopDeps): ShopService {
       await logging.failure(
         'shop.apply_failed',
         { purchaseId: row.id, userId: row.userId, goodId: good.id, err },
-        `⚠️ Не удалось выдать «${good.name}» ${mention(row.userId)} (покупка #${row.id}): ${summary}. Пробую каждую минуту${row.appliedAt === null ? '; если за 30 минут не выйдет — KP Coin вернутся игроку' : ''}.`,
+        // A hand-out paid nothing, so «KP Coin вернутся» would be a promise nobody can keep (024).
+        `⚠️ Не удалось выдать «${good.name}» ${mention(row.userId)} (покупка #${row.id}): ${summary}. Пробую каждую минуту${
+          row.appliedAt === null ? (row.pricePaid > 0 ? '; если за 30 минут не выйдет — KP Coin вернутся игроку' : '; если за 30 минут не выйдет — выдача отменится') : ''
+        }.`,
       );
     } else {
       await logging.failure('shop.apply_failed', { purchaseId: row.id, userId: row.userId, goodId: good.id, repeated: true, err });
     }
   }
 
-  /** 014 §2: the grant never worked; the money goes back once, then the partial state is cleaned. */
+  /**
+   * 014 §2: the grant never worked; the money goes back once, then the partial state is cleaned.
+   * A good an administrator handed out paid nothing (024 §1), so `economy.move` is not called at
+   * all: a zero move is refused («amount must be a non-zero integer»), and that throw would roll
+   * the whole ending back and leave the pass failing every minute for ever, after the player was
+   * already told their KP Coin were coming back (architect review 2026-09-20, M1).
+   */
   async function refund(row: PurchaseRow, good: GoodRecord, bound: BoundKind, why: string): Promise<void> {
     const now = clock.now();
     const amount = await withTxRetry(db, async (tx) => {
@@ -629,17 +638,21 @@ export function createShopService(deps: ShopDeps): ShopService {
       const paid = rows[0]?.pricePaid;
       if (paid === undefined) return null;
       await closeClans(tx, [row.id], now);
-      await economy.move(
-        { userId: row.userId, amount: paid, kind: TxKind.REFUND, reference: `refund:${row.id}`, description: `возврат: ${good.name}`, purchaseId: row.id },
-        tx,
-      );
+      if (paid > 0) {
+        await economy.move(
+          { userId: row.userId, amount: paid, kind: TxKind.REFUND, reference: `refund:${row.id}`, description: `возврат: ${good.name}`, purchaseId: row.id },
+          tx,
+        );
+      }
       return paid;
     });
     if (amount === null) return;
     await logging.event(
       'shop.refunded',
-      { purchaseId: row.id, userId: row.userId, goodId: good.id, amount, why },
-      `↩️ ${mention(row.userId)}: «${good.name}» не удалось выдать за 30 минут — ${amount} KP Coin возвращены (покупка #${row.id}). Причина: ${why}`,
+      { purchaseId: row.id, userId: row.userId, goodId: good.id, amount, gifted: amount <= 0, why },
+      `↩️ ${mention(row.userId)}: «${good.name}» не удалось выдать за 30 минут — ${
+        amount > 0 ? `${amount} KP Coin возвращены` : 'товар был выдан вручную, возвращать нечего'
+      } (покупка #${row.id}). Причина: ${why}`,
     );
     try {
       // Re-read: this very pass may have created the clan role and saved its id (017 §1).
