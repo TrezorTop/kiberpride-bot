@@ -51,9 +51,10 @@ async function main(): Promise<void> {
 
   const settings = createSettingsService(db);
   const logging = createLoggingService({ logger, settings, gateway, audit: gateway });
-  const economy = createEconomyService(db);
   // @everyone's role id is the guild's own id: `/права` must never hand a right to it.
   const permissions = createPermissionsService({ ...dbPermissionSources(db), everyoneRoleId: () => binding.id });
+  // economy needs it for `/начислить`: ECONOMY_ADMIN is checked in the service (decision 021 §2).
+  const economy = createEconomyService(db, { permissions });
   const games = createGamesService(db);
   const rewards = createRewardsService(db);
   const matches = createMatchesService({

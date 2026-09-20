@@ -37,6 +37,10 @@ export const DOMAIN_ERROR_CODES = [
   'NOT_A_MEMBER',
   // Rights (/права)
   'ROLE_NOT_GRANTABLE',
+  // Moving KP Coin by hand: /начислить (decision 021)
+  'AMOUNT_INVALID',
+  'BALANCE_TOO_LOW',
+  'TARGET_IS_BOT',
 ] as const;
 
 export type DomainErrorCode = (typeof DOMAIN_ERROR_CODES)[number];
@@ -48,6 +52,8 @@ export interface DomainErrorParams {
   at?: Date;
   /** Why a name was refused (clan and room names), a NameProblem code. */
   reason?: string;
+  /** A player's current KP, so a refusal can say how much there actually is (decision 021 §1). */
+  balance?: number;
 }
 
 export class DomainError extends Error {

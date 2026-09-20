@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { isDomainError, type DomainError } from '../../core/errors.js';
 import { isCheckViolation, withTx } from '../../db/tx.js';
 import { testDb } from '../../../tests/db/helpers.js';
-import { createEconomyService, TxKind, type MoveInput } from './service.js';
+import type { MemberFacts } from '../permissions/service.js';
+import { ADMIN_ADJUST_DEFAULT_REASON, ADMIN_ADJUST_MAX, createEconomyService, TxKind, type AdminAdjustInput, type MoveInput } from './service.js';
 
 const USER = '300000000000000001';
+const ROLE = '600000000000000001';
 
 const credit = (reference: string, amount: number): MoveInput => ({
   userId: USER,
@@ -118,6 +120,15 @@ describe('economy.move', () => {
     expect(s.balance).toBe(100);
   });
 
+  // Two interactions of a brand-new player at once (/баланс and a reward, say). `upsert` with an
+  // empty `update` read-then-inserted and threw on the primary key; found by the 021 tests.
+  it('creates a first-contact user row once, whatever arrives at the same moment', async () => {
+    const economy = createEconomyService(testDb());
+    const results = await Promise.all(Array.from({ length: 5 }, () => economy.ensureUser(USER)));
+    expect(results.map((r) => r.balance)).toEqual([0, 0, 0, 0, 0]);
+    expect(await testDb().user.count({ where: { id: USER } })).toBe(1);
+  });
+
   it('keeps history newest first', async () => {
     const economy = createEconomyService(testDb());
     await economy.move(credit('admin:a', 10));
@@ -162,6 +173,128 @@ describe('devTopUp (decision 014 §12)', () => {
     });
     await expect(economy.devTopUp(owner, 'nonce-abc123', 'production')).rejects.toMatchObject({ code: 'NOT_ALLOWED' });
     expect((await state()).rows).toHaveLength(0);
+  });
+});
+
+// `/начислить` (decision 021). What makes «an administrator cannot pay twice, cannot take more
+// than there is, and cannot do it at all without the right» true is this block, not the code.
+describe('adminAdjust (decision 021)', () => {
+  const ADMIN: MemberFacts = { userId: '100000000000000009', roleIds: [], isGuildOwner: false, isAdministrator: true };
+  const PLAYER: MemberFacts = { userId: '100000000000000010', roleIds: [ROLE], isGuildOwner: false, isAdministrator: false };
+
+  const adjust = (over: Partial<AdminAdjustInput> = {}): AdminAdjustInput => ({ userId: USER, amount: 500, nonce: 'nonce-grant01', ...over });
+
+  it('pays once per invocation, even when the same one is delivered five times', async () => {
+    const economy = createEconomyService(testDb());
+
+    const results = await Promise.all(Array.from({ length: 5 }, () => economy.adminAdjust(ADMIN, adjust({ reason: 'приз за турнир' }))));
+
+    expect(results.filter((r) => r.applied)).toHaveLength(1);
+    expect(new Set(results.map((r) => r.entry.id)).size).toBe(1);
+    const s = await state();
+    expect(s.rows).toHaveLength(1);
+    expect(s.balance).toBe(500);
+    expect(s.ledgerSum).toBe(s.balance);
+    expect(s.rows[0]).toMatchObject({
+      reference: 'admin:nonce-grant01',
+      kind: TxKind.ADMIN_ADJUST,
+      description: 'приз за турнир', // the history line reads «+500 KP Coin — приз за турнир»
+      actorId: ADMIN.userId,
+      balanceAfter: 500,
+    });
+  });
+
+  it('a second invocation is a second payment: a fresh nonce, a fresh line', async () => {
+    const economy = createEconomyService(testDb());
+    await economy.adminAdjust(ADMIN, adjust());
+    await economy.adminAdjust(ADMIN, adjust({ nonce: 'nonce-grant02', amount: 250 }));
+    const s = await state();
+    expect(s.balance).toBe(750);
+    expect(s.rows.map((r) => r.reference).sort()).toEqual(['admin:nonce-grant01', 'admin:nonce-grant02']);
+    expect(s.ledgerSum).toBe(s.balance);
+  });
+
+  it('takes KP away with a negative amount, down to zero', async () => {
+    const economy = createEconomyService(testDb());
+    await economy.adminAdjust(ADMIN, adjust({ amount: 500 }));
+    const taken = await economy.adminAdjust(ADMIN, adjust({ nonce: 'nonce-grant03', amount: -500, reason: 'ошибка в начислении' }));
+    expect(taken.entry.balanceAfter).toBe(0);
+    const s = await state();
+    expect(s.balance).toBe(0);
+    expect(s.ledgerSum).toBe(s.balance);
+  });
+
+  it('refuses taking more than the player has, says how much there is, and writes nothing', async () => {
+    const economy = createEconomyService(testDb());
+    await economy.adminAdjust(ADMIN, adjust({ amount: 120 }));
+
+    const error = await economy.adminAdjust(ADMIN, adjust({ nonce: 'nonce-grant04', amount: -500 })).then(
+      () => null,
+      (err: unknown) => err as DomainError,
+    );
+
+    expect(error).toMatchObject({ code: 'BALANCE_TOO_LOW', params: { balance: 120 } });
+    const s = await state();
+    expect(s.balance).toBe(120);
+    expect(s.rows.map((r) => r.reference)).toEqual(['admin:nonce-grant01']);
+    expect(s.ledgerSum).toBe(s.balance);
+  });
+
+  it('refuses an actor without ECONOMY_ADMIN and writes nothing', async () => {
+    const economy = createEconomyService(testDb());
+    await expect(economy.adminAdjust(PLAYER, adjust())).rejects.toMatchObject({ code: 'NOT_ALLOWED' });
+    expect((await state()).rows).toHaveLength(0);
+  });
+
+  it('lets a role granted ECONOMY_ADMIN do it — the right is data, not the command list', async () => {
+    const db = testDb();
+    const economy = createEconomyService(db);
+    await db.roleCapability.create({ data: { roleId: ROLE, capability: 'ECONOMY_ADMIN' } });
+    expect((await economy.adminAdjust(PLAYER, adjust())).applied).toBe(true);
+    expect((await state()).balance).toBe(500);
+  });
+
+  it('refuses a bot as the target', async () => {
+    const economy = createEconomyService(testDb());
+    await expect(economy.adminAdjust(ADMIN, adjust({ targetIsBot: true }))).rejects.toMatchObject({ code: 'TARGET_IS_BOT' });
+    expect((await state()).rows).toHaveLength(0);
+  });
+
+  it('refuses zero and anything past a million, in either direction', async () => {
+    const economy = createEconomyService(testDb());
+    for (const amount of [0, ADMIN_ADJUST_MAX + 1, -ADMIN_ADJUST_MAX - 1, 1.5]) {
+      await expect(economy.adminAdjust(ADMIN, adjust({ amount }))).rejects.toMatchObject({ code: 'AMOUNT_INVALID' });
+    }
+    expect((await state()).rows).toHaveLength(0);
+  });
+
+  it('writes «начислено администратором» when the administrator gave no reason', async () => {
+    const economy = createEconomyService(testDb());
+    await economy.adminAdjust(ADMIN, adjust({ reason: '   ' }));
+    expect((await state()).rows[0]?.description).toBe(ADMIN_ADJUST_DEFAULT_REASON);
+  });
+
+  it('lets an administrator pay themselves — deliberate, and the ledger names them', async () => {
+    const economy = createEconomyService(testDb());
+    const self = await economy.adminAdjust(ADMIN, adjust({ userId: ADMIN.userId }));
+    expect(self.applied).toBe(true);
+    const row = await testDb().kpTransaction.findUniqueOrThrow({ where: { reference: 'admin:nonce-grant01' } });
+    expect(row).toMatchObject({ userId: ADMIN.userId, actorId: ADMIN.userId, amount: 500 });
+  });
+
+  it('serialises concurrent takings: the balance never goes below zero', async () => {
+    const economy = createEconomyService(testDb());
+    await economy.adminAdjust(ADMIN, adjust({ amount: 100 }));
+
+    const settled = await Promise.allSettled(
+      Array.from({ length: 10 }, (_, i) => economy.adminAdjust(ADMIN, adjust({ nonce: `nonce-take0${i}`, amount: -30 }))),
+    );
+
+    expect(settled.filter((r) => r.status === 'fulfilled')).toHaveLength(3);
+    for (const r of settled.filter((r) => r.status === 'rejected')) expect((r.reason as DomainError).code).toBe('BALANCE_TOO_LOW');
+    const s = await state();
+    expect(s.balance).toBe(10);
+    expect(s.ledgerSum).toBe(s.balance);
   });
 });
 
