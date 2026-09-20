@@ -154,13 +154,17 @@ export interface ShopGateway {
 export interface GuildGateway extends ShopGateway {
   /**
    * Makes sure the bot's log channel exists and returns its id. `currentId` is the stored id;
-   * when it is null or the channel is gone, a new admin-only channel is created.
+   * when it is null, the channel is gone, or it belongs to a guild this deployment no longer
+   * serves (src/discord/missing.ts), a new admin-only channel is created.
    */
   ensureLogChannel(currentId: string | null): Promise<string>;
 
   /** Posts or edits the recruitment message; reposts when it was deleted. Returns its id. */
   renderMatchMessage(snapshot: MatchSnapshot, channelId: string, messageId: string | null): Promise<string>;
-  /** Stored id → exact name in the category → create. Overwrites are fully replaced. */
+  /**
+   * Stored id → exact name in the category → create. Overwrites are fully replaced. An id that
+   * is gone, unreachable, or another guild's counts as «not stored» (src/discord/missing.ts).
+   */
   ensureVoiceChannel(spec: VoiceChannelSpec): Promise<string>;
   /** «Unknown Channel» counts as done. */
   deleteChannel(id: string): Promise<void>;
@@ -171,7 +175,11 @@ export interface GuildGateway extends ShopGateway {
   /** Which of these users are still members of the guild. */
   presentMembers(userIds: readonly string[]): Promise<Set<string>>;
   listVoiceChannels(categoryIds: readonly string[]): Promise<VoiceChannelInfo[]>;
-  /** What the bot lacks in the recruit channel: View, Send, EmbedLinks, ReadHistory. */
+  /**
+   * What the bot lacks in the recruit channel: View, Send, EmbedLinks, ReadHistory. `NotFound`
+   * covers a deleted channel AND one belonging to a guild this deployment no longer serves;
+   * `sync` gives up on the match when it sees it (modules/matches/sync.ts).
+   */
   checkRecruitChannel(channelId: string): Promise<MissingPermissions>;
   /** What the bot lacks in the voice category: View, Connect, ManageChannels, ManageRoles, MoveMembers. */
   checkVoiceCategory(categoryId: string): Promise<MissingPermissions>;

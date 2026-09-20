@@ -24,6 +24,7 @@ async function categoryProblems(categoryId: string | null, check: (id: string) =
 export const personalRoomKind = defineKind<PersonalRoomConfig>({
   configSchema: personalRoomConfig,
   settable: ['categoryId'],
+  guildIdKeys: ['categoryId'],
   sharedResource: false,
 
   async validate(good, env) {

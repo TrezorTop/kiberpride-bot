@@ -2,6 +2,8 @@
 import type { Db } from '../../db/client.js';
 
 export interface GuildSettingsView {
+  /** The guild every id below belongs to; written by the guild bind only (./guildChange.ts). */
+  guildId: string | null;
   logChannelId: string | null;
   panelChannelId: string | null;
   defaultRecruitChannelId: string | null;
@@ -26,7 +28,8 @@ export interface SettingsService {
   update(patch: GuildSettingsPatch): Promise<GuildSettingsView>;
 }
 
-const SINGLETON_ID = 1;
+/** The one settings row (decision 003 §7); `guildChange.ts` writes it too. */
+export const SINGLETON_ID = 1;
 
 export function createSettingsService(db: Db): SettingsService {
   return {
@@ -51,6 +54,7 @@ export function createSettingsService(db: Db): SettingsService {
 
 function toView(row: GuildSettingsView): GuildSettingsView {
   return {
+    guildId: row.guildId,
     logChannelId: row.logChannelId,
     panelChannelId: row.panelChannelId,
     defaultRecruitChannelId: row.defaultRecruitChannelId,

@@ -18,6 +18,7 @@ import { Prisma, type Db, type Tx } from '../../db/client.js';
 import type { LoggingService } from '../logging/service.js';
 import { Capability, type PermissionsService } from '../permissions/service.js';
 import type { SettingsService } from '../settings/service.js';
+import type { FailureDedupe } from './syncFailures.js';
 
 /** A match ended this long ago still makes its category «managed» for orphan cleanup (008 §7). */
 const ORPHAN_WINDOW_MS = 7 * 24 * 60 * 60_000;
@@ -32,6 +33,8 @@ export interface SyncDeps {
   settings: SettingsService;
   logging: LoggingService;
   clock: Clock;
+  /** Shared with the sync-retry reporter: one log-channel line per (match, version). */
+  failures: FailureDedupe;
   load(client: Tx, id: number): Promise<MatchSnapshot | null>;
 }
 
@@ -101,10 +104,41 @@ export function createSyncer(deps: SyncDeps) {
       WHERE "id" = ${snap.id} AND "status" = ${snap.status}::"MatchStatus"`;
   }
 
+  /**
+   * The recruit channel is the one id `sync` cannot re-create: it is NOT NULL and the match was
+   * created in it. When it does not resolve here — deleted, left behind in the guild the bot
+   * served before (2026-09-20), or simply invisible to the bot because someone took View away —
+   * there is nowhere to post and nothing to converge, so this pass stops before any Discord work
+   * and says so once per (match, version).
+   *
+   * It does NOT stamp `syncedVersion` (review 2026-09-20): `NotFound` covers a 50001 on a channel
+   * in the served guild too, and that is repairable — give the bot View back and the match must
+   * catch up by itself. Stamping would take the match out of `unsynced()` and the minute job
+   * would never look at it again, freezing the message until a restart.
+   *
+   * Only «NotFound» gives up: a missing PERMISSION must keep failing loudly (architect's ruling).
+   */
+  async function recruitChannelUnreachable(snap: MatchSnapshot): Promise<boolean> {
+    if (!(await gateway.checkRecruitChannel(snap.recruitChannelId)).includes('NotFound')) return false;
+    if (deps.failures.firstFor(snap.id, snap.version)) {
+      await logging.failure(
+        'match.recruit_channel_unreachable',
+        { matchId: snap.id, channelId: snap.recruitChannelId, version: snap.version, status: snap.status },
+        isTerminal(snap.status)
+          ? undefined // nothing for anyone to do about a match that is already over
+          : `⚠️ Матч #${snap.id}: бот не видит канал набора — верни боту доступ к каналу. Если канала больше нет, отмени матч в «/игры».`,
+      );
+    }
+    return true;
+  }
+
   async function sync(id: number): Promise<void> {
     const read = await deps.load(db, id);
     if (!read) return;
     const version = read.version;
+
+    // Left unsynced on purpose: the retry job keeps trying, so access given back repairs itself.
+    if (await recruitChannelUnreachable(read)) return;
 
     const channels = await syncVoice(read);
     const snap: MatchSnapshot = { ...read, voiceChannelAId: channels.A, voiceChannelBId: channels.B };

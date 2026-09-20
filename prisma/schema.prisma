@@ -1,5 +1,8 @@
 // First-release schema — decision 003 (product/decisions/003-first-release-schema.md).
-// Match state machine — decision 004. One deployment serves one guild: no guildId columns.
+// Match state machine — decision 004. One deployment serves one guild, so no table carries a
+// guildId — except `GuildSettings.guildId`, which records WHICH guild that is, so that moving the
+// bot to another one is noticed and the stored Discord ids are dropped instead of resolving to
+// «Missing Access» forever (2026-09-20; src/modules/settings/guildChange.ts).
 //
 // Constraints Prisma cannot express are hand-written SQL in the migrations and named here
 // next to their model. Every one of them must have a db test that makes it fire.
@@ -220,6 +223,9 @@ model VoiceDay {
 ///          "GuildSettings_voiceDailyCapKp_nonnegative" (each >= 0; decision 014 §8).
 model GuildSettings {
   id                      Int      @id @default(1)
+  /// The guild these ids belong to; written at the first bind. When the bot is bound to a
+  /// different guild, every stored Discord id below is dropped (src/modules/settings/guildChange.ts).
+  guildId                 String?
   logChannelId            String?
   panelChannelId          String?
   defaultRecruitChannelId String?

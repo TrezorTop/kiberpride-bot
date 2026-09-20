@@ -24,7 +24,31 @@ bot then does not see `DISCORD_TOKEN` (the first run needed
 `POSTGRES_PASSWORD` only when its data volume is first created: changing it later in `.env`
 does nothing to the database — change it with `ALTER USER` inside the running database first,
 then in `.env`, then restart. `DISCORD_GUILD_ID` stays empty while the bot is in exactly one server
-(it serves the one it is in); set it to the REAL server's id only if the bot is ever in two.
+(it serves the one it is in); **set it to the REAL server's id the moment the bot is in two** —
+otherwise it refuses to serve any, and a restart while it is in two could bind it to the wrong
+one (see §Moving the bot to another Discord server).
+
+## Moving the bot to another Discord server
+
+Safe, and it needs no database surgery. Every Discord id the bot stores belongs to one server;
+the served server's id is kept in the settings row, and on the first start in a different one the
+bot drops the ids that cannot mean anything there — the log channel, the bot panel, the default
+recruit channel, the voice category and the shop goods' channels, roles and categories — and
+logs `guild changed — stored Discord ids dropped`. Balances, the ledger, prices, purchases,
+rights and match history are untouched.
+
+After such a move the owner sets the channels again on `/игры → ⚙️ Настройки` and on the shop
+settings screen; the log channel is adopted by name (`kp-логи`) or created on the first log event.
+Matches that were still open on the old server stay open here: their recruit channel does not
+resolve, so each sync stops before touching Discord and says so once per change in the log channel
+(«бот не видит канал набора…»), and an organiser cancels them from `/игры`. Nothing is posted and
+nothing is paid twice; the same line appears for a channel in THIS server the bot has lost sight
+of, and there it repairs itself as soon as the bot can see the channel again.
+
+If the move was an accident (the bot was removed from the real server while still a member of an
+old test one), the way back is to re-invite it to the real server, set `DISCORD_GUILD_ID` to that
+server's id in `/opt/ruslan-bot/.env` and restart; the ids are then set again through the
+settings screens. Before removing the bot from any server, set `DISCORD_GUILD_ID` first.
 
 ## What the container does on start
 
@@ -78,7 +102,10 @@ Tell the owner in one sentence.
 
 ---
 
-Last verified: 2026-09-20. Walked for the first deploy to the owner's server (decision 019):
+Last verified: 2026-09-20 (§Moving the bot to another Discord server added after the live move to
+the real server left the old server's log channel id stored and the heartbeat silent; written
+from the code and the automated suite, NOT yet walked as a real second move). Walked for the
+first deploy to the owner's server (decision 019):
 clone into `/opt/ruslan-bot`, `.env` over SSH (BOM and CRLF had to be stripped), 2 GB swap added,
 `ruslan` put in the `docker` group, `sh deploy/compose.sh up -d --build` — the image built in
 about six minutes, both containers came up healthy, and the bot logged `ready`, `serving guild`,

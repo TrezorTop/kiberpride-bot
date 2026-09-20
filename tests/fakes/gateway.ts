@@ -4,6 +4,7 @@
 // `leaks` and fails the call: fake ids must be filtered before the gateway (decision 008 §10).
 import { ensureChannel } from '../../src/core/ensureChannel.js';
 import { isFakeUserId, type MatchSnapshot, type MatchStatusName } from '../../src/core/match.js';
+import { belongsToGuild } from '../../src/discord/missing.js';
 import type {
   AccessChannelCheck,
   AccessPermission,
@@ -37,11 +38,19 @@ export interface FakeRoom {
 }
 
 interface FakeChannel extends VoiceChannelInfo {
+  /** The guild it lives in: an id left behind by another guild must never be adopted. */
+  guildId: string;
   allowUserIds: string[];
   allowRoleIds: string[];
 }
 
+/** The guild the fake serves; `addForeignChannel` puts a channel outside it. */
+export const FAKE_GUILD_ID = '100000000000000001';
+export const OTHER_GUILD_ID = '100000000000000002';
+
 export class FakeGateway implements GuildGateway {
+  guildId = FAKE_GUILD_ID;
+
   readonly channels = new Map<string, FakeChannel>();
   readonly messages = new Map<string, { channelId: string; snapshot: MatchSnapshot }>();
   readonly created: string[] = [];
@@ -75,6 +84,12 @@ export class FakeGateway implements GuildGateway {
     }
   }
 
+  /** Same rule as the real one: an id of another guild is «not there» (src/discord/missing.ts). */
+  private ownChannel(id: string): FakeChannel | null {
+    const channel = this.channels.get(id);
+    return channel && belongsToGuild(channel, this.guildId) ? channel : null;
+  }
+
   ensureLogChannel(currentId: string | null): Promise<string> {
     return Promise.resolve(currentId ?? 'log-channel');
   }
@@ -95,14 +110,17 @@ export class FakeGateway implements GuildGateway {
   async ensureVoiceChannel(spec: VoiceChannelSpec): Promise<string> {
     this.real(spec.allowUserIds, 'ensureVoiceChannel');
     return ensureChannel(spec, {
-      byId: (id) => Promise.resolve(this.channels.has(id) ? { id } : null),
+      byId: (id) => Promise.resolve(this.ownChannel(id) ? { id } : null),
       byName: (categoryId, name) =>
-        Promise.resolve([...this.channels.values()].find((c) => c.parentId === categoryId && c.name === name) ?? null),
+        Promise.resolve(
+          [...this.channels.values()].find((c) => belongsToGuild(c, this.guildId) && c.parentId === categoryId && c.name === name) ?? null,
+        ),
       create: (s) => {
         const channel: FakeChannel = {
           id: this.id(),
           name: s.name,
           parentId: s.categoryId,
+          guildId: this.guildId,
           allowUserIds: [...s.allowUserIds],
           allowRoleIds: [...s.allowRoleIds],
         };
@@ -123,6 +141,7 @@ export class FakeGateway implements GuildGateway {
   }
 
   deleteChannel(id: string): Promise<void> {
+    if (this.channels.get(id) && !this.ownChannel(id)) return Promise.resolve(); // another guild's: not ours to delete
     if (this.channels.delete(id) || this.rooms.delete(id)) this.deleted.push(id); // unknown counts as done
     return Promise.resolve();
   }
@@ -145,11 +164,17 @@ export class FakeGateway implements GuildGateway {
 
   listVoiceChannels(categoryIds: readonly string[]): Promise<VoiceChannelInfo[]> {
     return Promise.resolve(
-      [...this.channels.values()].filter((c) => c.parentId !== null && categoryIds.includes(c.parentId)).map(({ id, name, parentId }) => ({ id, name, parentId })),
+      [...this.channels.values()]
+        .filter((c) => belongsToGuild(c, this.guildId) && c.parentId !== null && categoryIds.includes(c.parentId))
+        .map(({ id, name, parentId }) => ({ id, name, parentId })),
     );
   }
 
-  checkRecruitChannel(): Promise<string[]> {
+  /** Recruit channels that do not resolve here: deleted, or left in a guild we no longer serve. */
+  readonly goneChannels = new Set<string>();
+
+  checkRecruitChannel(channelId: string): Promise<string[]> {
+    if (this.goneChannels.has(channelId)) return Promise.resolve(['NotFound']);
     return Promise.resolve([...this.missingRecruit]);
   }
 
@@ -160,7 +185,14 @@ export class FakeGateway implements GuildGateway {
   /** Adds a channel as if someone (or a crashed run) had created it. */
   addChannel(name: string, parentId: string): string {
     const id = this.id();
-    this.channels.set(id, { id, name, parentId, allowUserIds: [], allowRoleIds: [] });
+    this.channels.set(id, { id, name, parentId, guildId: this.guildId, allowUserIds: [], allowRoleIds: [] });
+    return id;
+  }
+
+  /** A channel left behind in a guild this deployment no longer serves (2026-09-20 defect). */
+  addForeignChannel(name: string, parentId: string): string {
+    const id = this.id();
+    this.channels.set(id, { id, name, parentId, guildId: OTHER_GUILD_ID, allowUserIds: [], allowRoleIds: [] });
     return id;
   }
 

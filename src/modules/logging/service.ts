@@ -9,7 +9,11 @@ export interface LoggingService {
   event(name: string, fields: Record<string, unknown>, audit?: string): Promise<void>;
   /** Same as `event`, at error level: something failed and someone should look (sync, jobs). */
   failure(name: string, fields: Record<string, unknown>, audit?: string): Promise<void>;
-  /** Ensures the log channel exists (creating it if missing or deleted) and stores its id. */
+  /**
+   * Ensures the log channel exists (creating it when missing, deleted, or left in a guild this
+   * deployment no longer serves) and stores its id. Cheap to call again; a failure is retried by
+   * the next log event, so the heartbeat never depends on it (rule bot-always-on §4).
+   */
   ensureLogChannel(): Promise<string>;
   /** The quiet «alive» line on start, carrying the version (rule bot-always-on §4). */
   heartbeat(version: string): Promise<void>;
@@ -23,10 +27,35 @@ export function createLoggingService(deps: {
 }): LoggingService {
   const { logger, settings, gateway, audit } = deps;
 
+  // One ensure at a time (two events at once must not create two channels), kept so later posts
+  // are free, and forgotten whenever a post fails — so a channel deleted, or left behind in the
+  // guild the bot no longer serves, is retried on the next event instead of once at bind.
+  let ensured: Promise<string> | null = null;
+
+  function ensureOnce(): Promise<string> {
+    ensured ??= doEnsure().catch((err: unknown) => {
+      ensured = null;
+      throw err;
+    });
+    return ensured;
+  }
+
+  async function doEnsure(): Promise<string> {
+    const current = (await settings.get()).logChannelId;
+    const id = await gateway.ensureLogChannel(current);
+    if (id !== current) {
+      await settings.update({ logChannelId: id });
+      logger.info({ logChannelId: id, previous: current }, 'log channel created');
+    }
+    return id;
+  }
+
   async function post(line: string): Promise<void> {
     try {
+      await ensureOnce();
       await audit.post(line);
     } catch (err) {
+      ensured = null; // the next event ensures again rather than posting into nothing
       logger.warn({ err }, 'log channel post failed');
     }
   }
@@ -42,15 +71,7 @@ export function createLoggingService(deps: {
       if (auditLine) await post(auditLine);
     },
 
-    async ensureLogChannel() {
-      const current = (await settings.get()).logChannelId;
-      const id = await gateway.ensureLogChannel(current);
-      if (id !== current) {
-        await settings.update({ logChannelId: id });
-        logger.info({ logChannelId: id, previous: current }, 'log channel created');
-      }
-      return id;
-    },
+    ensureLogChannel: ensureOnce,
 
     async heartbeat(version) {
       logger.info({ version }, 'heartbeat');

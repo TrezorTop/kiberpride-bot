@@ -141,8 +141,8 @@ export function createMatchesService(deps: MatchesDeps): MatchesService {
   const clock = deps.clock ?? systemClock;
   const autoSync = deps.autoSync ?? true;
 
-  const syncer = createSyncer({ db, gateway, permissions, settings: deps.settings, logging, clock, load });
   const failures = createFailureDedupe();
+  const syncer = createSyncer({ db, gateway, permissions, settings: deps.settings, logging, clock, failures, load });
   const queue = createSyncQueue(syncer.sync, (id, err) => {
     void reportSyncFailure(id, err);
   });

@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { FakeGateway } from '../../../../tests/fakes/gateway.js';
 import { DEFAULT_CLAN_PALETTE } from './clanRole.js';
-import { bindKind, type GoodRecord, type KindEnv } from './index.js';
+import { bindKind, guildIdsPatch, kinds, type GoodRecord, type KindEnv } from './index.js';
 
 const CH = '700000000000000001';
 const ANCHOR = '700000000000000020';
@@ -84,5 +84,37 @@ describe('clan_role', () => {
     await bound?.apply({ ...grant, clan: { ...grant.clan, roleId } }, env(gw));
     expect((await gw.roleMembers(roleId)).sort()).toEqual([owner, member]);
     expect(gw.roles.get(roleId)?.below).toBe(ANCHOR);
+  });
+});
+
+// The ids a good holds are ids of ONE guild; moving the bot invalidates all of them at once
+// (src/modules/settings/guildChange.ts).
+describe('guildIdsPatch', () => {
+  it('empties the id lists and nulls the single ids, naming nothing else', () => {
+    expect(guildIdsPatch('channel_permission', { permissions: ['AttachFiles'], channelIds: [CH], roleId: ANCHOR })).toEqual({
+      channelIds: [],
+      roleId: null,
+    });
+    expect(guildIdsPatch('clan_role', { maxMembers: 10, anchorRoleId: ANCHOR, palette: DEFAULT_CLAN_PALETTE })).toEqual({ anchorRoleId: null });
+    expect(guildIdsPatch('personal_room', { categoryId: CH })).toEqual({ categoryId: null });
+  });
+
+  it('is a no-op for a good that holds no id, an unknown kind or a config that is not an object', () => {
+    expect(guildIdsPatch('channel_permission', { permissions: ['AttachFiles'], channelIds: [], roleId: null })).toBeNull();
+    expect(guildIdsPatch('personal_room', { categoryId: null })).toBeNull();
+    expect(guildIdsPatch('no_such_kind', { categoryId: CH })).toBeNull();
+    expect(guildIdsPatch('personal_room', null)).toBeNull();
+    expect(guildIdsPatch('personal_room', [CH])).toBeNull();
+  });
+
+  it('clears a config its own schema would refuse — a broken good must not keep stale ids', () => {
+    expect(bindKind(good('personal_room', { categoryId: CH, extra: 1, userLimit: 'no' }))).not.toBeNull();
+    expect(guildIdsPatch('personal_room', { categoryId: CH, permissions: 'nonsense' })).toEqual({ categoryId: null });
+  });
+
+  it('every kind declares where its Discord ids are: a new kind cannot forget to', () => {
+    for (const [name, kind] of Object.entries(kinds)) {
+      expect(kind.guildIdKeys.length, `${name} declares no guildIdKeys`).toBeGreaterThan(0);
+    }
   });
 });

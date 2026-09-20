@@ -16,6 +16,7 @@ export type ChannelPermissionConfig = z.infer<typeof channelPermissionConfig>;
 export const channelPermissionKind = defineKind<ChannelPermissionConfig>({
   configSchema: channelPermissionConfig,
   settable: ['channelIds'],
+  guildIdKeys: ['channelIds', 'roleId'],
   sharedResource: true,
 
   async validate(good, env) {

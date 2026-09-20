@@ -35,6 +35,7 @@ import type {
 } from '../core/ports.js';
 import type { Logger } from '../modules/logging/logger.js';
 import { clearAccessOverwrites, otherRolesAllowing, writeAccessOverwrites } from './accessOverwrites.js';
+import { belongsToGuild, isMissing } from './missing.js';
 import type { GuildBinding } from './router.js';
 import { announcementView, recruitmentView } from './views/matches.js';
 import { playerNoticeEmbed } from './views/shop.js';
@@ -64,14 +65,23 @@ export class DiscordGateway implements GuildGateway, AuditLog {
   async ensureLogChannel(currentId: string | null): Promise<string> {
     const guild = await this.guild();
     if (currentId) {
-      const existing = await guild.channels.fetch(currentId).catch((err: unknown) => {
-        if (isUnknown(err)) return null; // deleted by someone: recreate below
-        throw err; // anything else (network, rights) must not create a duplicate channel
-      });
+      // Gone, refused, or another guild's channel: all three mean «this id is no use» (missing.ts).
+      const existing = await this.channelById(guild, currentId);
       if (existing?.type === ChannelType.GuildText) {
         this.logChannelId = existing.id;
         return existing.id;
       }
+    }
+
+    // 008 §7 ensure-by-id-then-name, and now required rather than tidy (review 2026-09-20): the id
+    // fails to resolve for a channel that is right there (a stale id after a move, a foreign-guild
+    // id, View taken away and given back), and a fresh `kp-логи` on every such start would litter
+    // the server with duplicates that each hold part of the history.
+    const all = await guild.channels.fetch();
+    const adopted = all.find((c) => c?.type === ChannelType.GuildText && c.name === LOG_CHANNEL_NAME);
+    if (adopted) {
+      this.logChannelId = adopted.id;
+      return adopted.id;
     }
 
     const botId = this.botId();
@@ -130,10 +140,7 @@ export class DiscordGateway implements GuildGateway, AuditLog {
     const overwrites = this.teamOverwrites(guild, spec);
     return ensureChannel(spec, {
       byId: async (id) => {
-        const channel = await guild.channels.fetch(id).catch((err: unknown) => {
-          if (isUnknown(err)) return null;
-          throw err;
-        });
+        const channel = await this.channelById(guild, id);
         return channel?.type === ChannelType.GuildVoice ? channel : null;
       },
       byName: async (categoryId, name) => {
@@ -159,9 +166,12 @@ export class DiscordGateway implements GuildGateway, AuditLog {
     const guild = await this.guild();
     try {
       const channel = await guild.channels.fetch(id);
+      if (!belongsToGuild(channel, guild.id)) return; // another guild's channel: not ours to delete
       await channel?.delete('KiberPride Bot: match channel no longer needed');
     } catch (err) {
-      if (!isUnknown(err)) throw err; // «Unknown Channel» counts as done (008 §7)
+      // «Unknown Channel» counts as done (008 §7). «Missing Permissions» does NOT (missing.ts):
+      // the channel is there and visible, and forgetting its id would leak it forever.
+      if (!isMissing(err)) throw err;
     }
   }
 
@@ -253,7 +263,7 @@ export class DiscordGateway implements GuildGateway, AuditLog {
     try {
       await guild.roles.delete(id, 'KiberPride Bot: the purchase ended');
     } catch (err) {
-      if (!hasCode(err, RESTJSONErrorCodes.UnknownRole)) throw err; // «Unknown Role» counts as done
+      if (!isMissing(err)) throw err; // «Unknown Role» counts as done; a refusal (50013) does not
     }
   }
 
@@ -428,20 +438,24 @@ export class DiscordGateway implements GuildGateway, AuditLog {
 
   // ─── internals ───────────────────────────────────────────────────────────
 
+  /** The role, or null when it is gone, refused, or another guild's (missing.ts). */
   private async roleById(guild: Guild, id: string): Promise<Role | null> {
     const cached = guild.roles.cache.get(id);
-    if (cached) return cached;
-    return guild.roles.fetch(id).catch((err: unknown) => {
-      if (hasCode(err, RESTJSONErrorCodes.UnknownRole)) return null;
+    if (cached) return belongsToGuild(cached, guild.id) ? cached : null;
+    const role = await guild.roles.fetch(id).catch((err: unknown) => {
+      if (isMissing(err)) return null;
       throw err;
     });
+    return role && belongsToGuild(role, guild.id) ? role : null;
   }
 
+  /** The channel, or null when it is gone, refused, or another guild's (missing.ts). */
   private async channelById(guild: Guild, id: string): Promise<GuildBasedChannel | null> {
-    return guild.channels.fetch(id).catch((err: unknown) => {
-      if (isUnknown(err)) return null;
-      throw err;
+    const channel = await guild.channels.fetch(id).catch((err: unknown) => {
+      if (isMissing(err)) return null;
+      throw err; // anything else (network) must not make the caller create a duplicate
     });
+    return channel && belongsToGuild(channel, guild.id) ? channel : null;
   }
 
   private async missing(
@@ -450,10 +464,7 @@ export class DiscordGateway implements GuildGateway, AuditLog {
     needs: readonly (keyof typeof PermissionFlagsBits)[],
   ): Promise<MissingPermissions> {
     const guild = await this.guild();
-    const channel = await guild.channels.fetch(id).catch((err: unknown) => {
-      if (isUnknown(err)) return null;
-      throw err;
-    });
+    const channel = await this.channelById(guild, id);
     if (!channel || !isRightKind(channel)) return ['NotFound'];
     const me = guild.members.me ?? (await guild.members.fetchMe());
     const held = channel.permissionsFor(me);
@@ -493,10 +504,6 @@ export function knownRoleIds(ids: readonly string[], exists: (id: string) => boo
   const dropped: string[] = [];
   for (const id of ids) (exists(id) ? kept : dropped).push(id);
   return { kept, dropped };
-}
-
-function isUnknown(err: unknown): boolean {
-  return err instanceof DiscordAPIError && err.code === RESTJSONErrorCodes.UnknownChannel;
 }
 
 function hasCode(err: unknown, code: RESTJSONErrorCodes): boolean {

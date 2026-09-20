@@ -27,9 +27,11 @@ import { createLoggingService } from './modules/logging/service.js';
 import { createMatchesService } from './modules/matches/service.js';
 import { createPermissionsService, dbPermissionSources } from './modules/permissions/service.js';
 import { createRewardsService } from './modules/rewards/service.js';
+import { bindGuildSettings } from './modules/settings/guildChange.js';
 import { createSettingsService } from './modules/settings/service.js';
 import { createClanService } from './modules/shop/clan.js';
 import { createRoomService } from './modules/shop/room.js';
+import { guildIdsPatch } from './modules/shop/kinds/index.js';
 import { createShopService } from './modules/shop/service.js';
 
 /** Container health check target (deploy/docker-compose.yml); bound to localhost only. */
@@ -103,6 +105,7 @@ async function main(): Promise<void> {
     logging,
     version,
     inviteUrl: clientId ? inviteUrl(clientId) : null,
+    bindSettings: (guildId) => bindGuildSettings({ db, settings, goodIdsPatch: guildIdsPatch }, guildId),
     routes: { commands, buttons, selects, modals },
     configuredGuildId: env.DISCORD_GUILD_ID,
     fatal,
