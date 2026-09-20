@@ -6,7 +6,7 @@ import { mayUseDevTools } from '../../modules/permissions/devTools.js';
 import { Capability } from '../../modules/permissions/service.js';
 import { snowflakeArg } from '../customId.js';
 import { actorOf } from '../member.js';
-import { idArg, requireSettingsRight, showSettings, versionOf } from '../panels.js';
+import { flagOf, idArg, requireSettingsRight, showSettings, versionOf } from '../panels.js';
 import type { ComponentRoute } from '../router.js';
 import { displayNameOf, renderRoomPanel, showClanPanel, showRoomPanel, showShopSettings } from '../shopScreens.js';
 import { buyResultView, clanModal, dailyClaimedEmbed, enableRefusedNote, purchasesView, revokeResultView, roomNameModal } from '../views/shop.js';
@@ -94,7 +94,9 @@ export const roomRenameButton: Route = {
 export const roomLockButton: Route = {
   defer: 'update',
   async run(interaction, args, ctx) {
-    const locked = args[1] === '1';
+    // The flag is read FIRST and must be explicit: the old shape was `rmlock:<1|0>`, so a panel
+    // from before this deploy would otherwise read as «открыть комнату #1 для всех» (024 M2).
+    const locked = flagOf(args[1]);
     const room = await ctx.rooms.update(await actorOf(interaction), idArg(args[0]), { locked });
     await renderRoomPanel(interaction, ctx, room, locked ? '🔒 Комната закрыта: заходят только владелец и гости.' : '🔓 Комната открыта для всех.');
   },
@@ -155,7 +157,7 @@ export const revokeButton: Route = {
   defer: 'update',
   async run(interaction, args, ctx) {
     const actor = await actorOf(interaction);
-    const result = await ctx.shop.revoke(actor, { purchaseId: idArg(args[0]), expectedPeriods: versionOf(args[1]), refund: args[2] === '1' });
+    const result = await ctx.shop.revoke(actor, { purchaseId: idArg(args[0]), expectedPeriods: versionOf(args[1]), refund: flagOf(args[2]) });
     await interaction.editReply(revokeResultView(result));
   },
 };
@@ -184,7 +186,7 @@ export const enableGoodButton: Route = {
   async run(interaction, args, ctx) {
     const actor = await requireSettingsRight(interaction, ctx);
     const goodId = idArg(args[0]);
-    const want = args[1] === '1';
+    const want = flagOf(args[1]);
     const result = await ctx.shop.setEnabled(actor, goodId, want);
     const note =
       want && !result.enabled

@@ -26,6 +26,17 @@ export function versionOf(value: string | undefined): number {
   return v;
 }
 
+/**
+ * A `<1|0>` choice from a custom_id. Never `value === '1'`: a panel drawn by an older deploy can
+ * carry one argument fewer, and then the flag reads as absent — «открыть комнату для всех»,
+ * «снять без возврата» — on a row the presser never chose. Anything but an explicit 0 or 1 is a
+ * stale panel (architect review 2026-09-20, M2).
+ */
+export function flagOf(value: string | undefined): boolean {
+  if (value !== '0' && value !== '1') throw new DomainError('STALE_PANEL', `bad flag ${value}`);
+  return value === '1';
+}
+
 /** The match, if the presser may manage it (creator or MATCH_MANAGE_ANY). */
 export async function managedMatch(interaction: Component, ctx: AppContext, id: number): Promise<{ actor: MemberFacts; match: MatchSnapshot }> {
   const actor = await actorOf(interaction);
