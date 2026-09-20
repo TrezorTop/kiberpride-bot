@@ -4,6 +4,7 @@
 // a player without SHOP_MANAGE writes nothing, and a handed-out clan behaves like a bought one.
 import { describe, expect, it } from 'vitest';
 import { fakeUserId } from '../../../src/core/match.js';
+import { GRANT_GOOD_CHOICES } from '../../../src/discord/commands/grantGood.js';
 import { GRANT_DAYS_MAX } from '../../../src/modules/shop/service.js';
 import { testDb } from '../helpers.js';
 import { ADMIN, balanceOf, buyer, codes, DAY, expectShopInvariants, fund, mediaRoleId, player, shopHarness } from './harness.js';
@@ -122,6 +123,35 @@ describe('handing out what the player already has extends it (024 §1)', () => {
     await expectShopInvariants();
   });
 
+  // The two paths that extend the same row are different code — a guarded UPDATE that also moves
+  // KP Coin, and one that moves nothing — so they are raced against each other, not only against
+  // themselves (architect review 2026-09-20, F2).
+  it('a hand-out racing the player’s own paid renewal: one wins, and the player pays at most once', async () => {
+    const h = await shopHarness();
+    await fund(h, U, 20_000);
+    const bought = await h.shop.buy(U, h.goods.media, 0);
+    const second = h.restart();
+
+    const results = await Promise.allSettled([
+      h.shop.grantByAdmin(ADMIN, { userId: U, goodId: h.goods.media, days: 10 }),
+      second.buy(U, h.goods.media, 1),
+    ]);
+    await h.shop.idle();
+
+    expect(codes(results).filter((c) => c === null)).toHaveLength(1);
+    // The loser is refused by the period guard, whichever of the two it happens to be.
+    expect(['GRANT_RACED', 'STALE_PANEL']).toContain(codes(results).find((c) => c !== null));
+
+    const row = await purchase(bought.purchaseId);
+    expect(row.periods).toBe(2); // exactly one of them added a period
+    const charged = await testDb().kpTransaction.findMany({ where: { purchaseId: bought.purchaseId, kind: 'PURCHASE' } });
+    // One charge for the first purchase, and a second only if the paid renewal is the one that won.
+    expect(charged.length).toBe(results[1]?.status === 'fulfilled' ? 2 : 1);
+    expect(row.pricePaid).toBe(5000 * charged.length);
+    expect(await balanceOf(U)).toBe(20_000 - 5000 * charged.length);
+    await expectShopInvariants();
+  });
+
   it('two hand-outs at once on an existing grant add the days once', async () => {
     const h = await shopHarness();
     const first = await h.shop.grantByAdmin(ADMIN, { userId: U, goodId: h.goods.media, days: 30 });
@@ -178,6 +208,21 @@ describe('what a hand-out refuses (024 §1, §2)', () => {
 
     expect(await testDb().purchase.count()).toBe(0);
     await expectShopInvariants();
+  });
+});
+
+describe('the command’s own list of goods (024 §1)', () => {
+  // The choices are static in the command while the goods live in the database: a slug that is
+  // not in the catalogue would fail as «не нашёл это» only when an administrator picked it
+  // (architect review 2026-09-20, F3).
+  it('every good `/выдать-товар` offers is really in the catalogue, and none is missing', async () => {
+    const h = await shopHarness();
+    for (const choice of GRANT_GOOD_CHOICES) {
+      const good = await h.shop.goodBySlug(choice.value);
+      expect({ slug: choice.value, found: good?.slug ?? null }).toEqual({ slug: choice.value, found: choice.value });
+    }
+    const catalogue = (await testDb().shopGood.findMany({ select: { slug: true } })).map((g) => g.slug).sort();
+    expect(catalogue).toEqual([...GRANT_GOOD_CHOICES.map((c) => c.value)].sort());
   });
 });
 

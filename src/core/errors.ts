@@ -59,6 +59,8 @@ export interface DomainErrorParams {
   balance?: number;
   /** The good a refusal is about, so an administrator is told WHICH one (decision 024 §1). */
   goodName?: string;
+  /** Whose room or purchase the refusal is about, when it is not the reader's own (024 §4). */
+  ownerId?: string;
 }
 
 export class DomainError extends Error {

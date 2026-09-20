@@ -301,4 +301,18 @@ describe('shop views', () => {
     expect(domainErrorText({ code: 'NAME_INVALID', params: { reason: 'link' } })).toContain('Ссылки');
     expect(domainErrorText({ code: 'SHOP_UNAVAILABLE' })).toContain('KP Coin не списаны');
   });
+
+  // An administrator working on somebody else's room or purchase must not be told «у тебя»
+  // (decision 024 §4; architect review 2026-09-20, F4).
+  it('the refusals an administrator sees are about the player, not about them', () => {
+    const noRoom = domainErrorText({ code: 'NO_ROOM', params: { ownerId: U } });
+    expect(noRoom).toContain(`<@${U}>`);
+    expect(noRoom).not.toContain('У тебя');
+    expect(noRoom).toContain('/выдать-товар');
+    // The player's own refusal is unchanged: their room, their shop.
+    expect(domainErrorText({ code: 'NO_ROOM' })).toBe('У тебя нет личной комнаты. Её можно купить в /магазин 🏠');
+
+    expect(domainErrorText({ code: 'ALREADY_OWNED', params: { goodName: 'Личная комната' } })).toBe('«Личная комната» у этого игрока уже есть навсегда — продлевать нечего.');
+    expect(domainErrorText({ code: 'ALREADY_OWNED' })).toContain('Это у тебя уже есть');
+  });
 });

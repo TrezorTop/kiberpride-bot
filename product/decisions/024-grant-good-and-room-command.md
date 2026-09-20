@@ -46,3 +46,22 @@ personal-room panel directly instead of going through `/магазин` or `/п�
 A handed-out good is indistinguishable from a bought one afterwards, except that its `pricePaid`
 is 0 — so `/отозвать` with a refund returns nothing, which the screen must say plainly. The shop's
 audit trail keeps the difference: a purchase has a ledger line, a hand-out has a log line only.
+
+`pricePaid = 0` also reaches the automatic refund of a grant Discord never applied (014 §2): there
+is no money to give back, so `economy.move` is not called at all — a zero move is refused and its
+throw would roll the ending back and leave the convergence pass failing every minute for ever. The
+purchase still leaves ACTIVE, the clan still closes, and the log line, the earlier «пробую каждую
+минуту» warning and the player's private message all say «товар был выдан вручную — возвращать
+нечего» instead of «0 KP Coin вернулись» (review of 2026-09-20, M1).
+
+Every component of the room panel now carries the room's id (§4), so an ephemeral panel drawn by
+an older deploy carries one argument fewer. Such a press is refused as a stale panel: a `<1|0>`
+flag must be present and explicit, never inferred, or `rmlock:1` would read as «открыть комнату №1
+для всех» (review of 2026-09-20, M2).
+
+Filed, due 2026-09-27 (from the review of 2026-09-20):
+- a hand-out extends a purchase that has never been applied, which a paid renewal refuses
+  (`appliedAt IS NOT NULL`). The 30-minute window that ends an unapplied grant is measured from
+  `grantedAt`, so the extension does not move it: an administrator can add days to a purchase that
+  the next convergence pass then ends. Decide whether a hand-out must refuse an unapplied purchase
+  (like a renewal), or re-arm the window.

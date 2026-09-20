@@ -170,6 +170,28 @@ describe('an administrator on someone else`s room (024 §4)', () => {
     await expectShopInvariants();
   });
 
+  // The panel an administrator opened keeps working after the room's purchase ends, and the
+  // refusal it gives must be about the player, not «у тебя нет комнаты» (review 2026-09-20, F4).
+  it('a room that ended under an open panel refuses by naming its owner — and only to someone allowed', async () => {
+    const h = await shopHarness();
+    const stranger = player(buyer(7));
+    await fund(h, OWNER, 10_000);
+    await h.shop.buy(OWNER, h.goods.room, 0, { roomName: 'Комната' });
+    const roomId = await roomIdOf(OWNER);
+
+    h.clock.advance(30 * DAY);
+    await h.shop.expirePass(h.clock.now());
+    await h.shop.idle();
+
+    await expect(h.rooms.forManager(ADMIN, roomId)).rejects.toMatchObject({ code: 'NO_ROOM', params: { ownerId: OWNER } });
+    await expect(h.rooms.update(ADMIN, roomId, { locked: true })).rejects.toMatchObject({ code: 'NO_ROOM', params: { ownerId: OWNER } });
+    // The owner's own press still hears their own sentence: no `ownerId`, no mention of anyone.
+    await expect(h.rooms.forManager(ME, roomId)).rejects.toMatchObject({ code: 'NO_ROOM', params: {} });
+    // And a stranger is told «нельзя», never whose room it was.
+    await expect(h.rooms.forManager(stranger, roomId)).rejects.toMatchObject({ code: 'NOT_ALLOWED' });
+    await expectShopInvariants();
+  });
+
   it('only an administrator`s change names an actor in the log channel', async () => {
     const h = await shopHarness();
     await fund(h, OWNER, 10_000);

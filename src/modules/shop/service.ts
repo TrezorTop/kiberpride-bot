@@ -516,7 +516,8 @@ export function createShopService(deps: ShopDeps): ShopService {
     const current = await db.purchase.findFirst({ where: { userId, goodId: good.id, status: 'ACTIVE' }, select: { id: true, expiresAt: true } });
     if (current) {
       // A good that never ends has nothing to extend; the same refusal a renewal gives (014 §1).
-      if (current.expiresAt === null) throw new DomainError('ALREADY_OWNED', `good ${good.id} is forever`);
+      // The name goes with it: this one reaches an administrator, not the player (024 F4).
+      if (current.expiresAt === null) throw new DomainError('ALREADY_OWNED', `good ${good.id} is forever`, { goodName: good.name });
       return withTx(db, async (tx) => {
         const seen = await tx.$queryRaw<{ periods: number }[]>`
           SELECT "periods" FROM "Purchase" WHERE "id" = ${current.id} AND "status" = 'ACTIVE' AND "expiresAt" IS NOT NULL`;

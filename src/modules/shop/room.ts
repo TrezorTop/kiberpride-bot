@@ -107,11 +107,19 @@ export function createRoomService(deps: RoomDeps): RoomService {
   /** The room, if the actor may change it: its owner, or SHOP_MANAGE (024 §4). */
   async function manageable(actor: MemberFacts, roomId: number): Promise<RoomView> {
     const room = await loadById(roomId);
-    if (!room) throw new DomainError('NO_ROOM', `room ${roomId}`);
-    if (room.ownerId !== actor.userId && !(await permissions.can(actor, Capability.SHOP_MANAGE))) {
-      throw new DomainError('NOT_ALLOWED', `room ${roomId} of ${room.ownerId}`);
+    if (room) {
+      if (room.ownerId !== actor.userId && !(await permissions.can(actor, Capability.SHOP_MANAGE))) {
+        throw new DomainError('NOT_ALLOWED', `room ${roomId} of ${room.ownerId}`);
+      }
+      return room;
     }
-    return room;
+    // The room ended while its panel was open. An administrator may be looking at somebody else's,
+    // and «у тебя нет комнаты» is then the wrong sentence, so the refusal names whose it was
+    // (architect review 2026-09-20, F4). Rights are still checked before naming anyone.
+    const gone = await db.personalRoom.findUnique({ where: { id: roomId }, select: { ownerId: true } });
+    if (!gone || gone.ownerId === actor.userId) throw new DomainError('NO_ROOM', `room ${roomId}`);
+    if (!(await permissions.can(actor, Capability.SHOP_MANAGE))) throw new DomainError('NOT_ALLOWED', `room ${roomId} of ${gone.ownerId}`);
+    throw new DomainError('NO_ROOM', `room ${roomId} of ${gone.ownerId}`, { ownerId: gone.ownerId });
   }
 
   /**

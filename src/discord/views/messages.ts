@@ -104,6 +104,14 @@ export function domainErrorText(err: { code: DomainErrorCode; params?: DomainErr
   if (err.code === 'GOOD_DISABLED' && err.params?.goodName) {
     return `«${err.params.goodName}» сейчас выключён — включи его в /настройки-магазина и выдай ещё раз.`;
   }
+  // The two refusals of `/комната <игрок>` and `/выдать-товар` that reach an administrator about
+  // SOMEBODY ELSE: «у тебя» would be the wrong word for them (decision 024 §4; review F4).
+  if (err.code === 'NO_ROOM' && err.params?.ownerId) {
+    return `У <@${err.params.ownerId}> больше нет личной комнаты — срок вышел или покупку отозвали. Выдать заново: /выдать-товар.`;
+  }
+  if (err.code === 'ALREADY_OWNED' && err.params?.goodName) {
+    return `«${err.params.goodName}» у этого игрока уже есть навсегда — продлевать нечего.`;
+  }
   if (err.code === 'NAME_INVALID' && err.params?.reason) {
     return `${NAME_PROBLEM_TEXT[err.params.reason] ?? DOMAIN_ERROR_TEXT.NAME_INVALID} Попробуй ещё раз.`;
   }
