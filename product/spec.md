@@ -116,6 +116,14 @@ the end and takes the grant back at the end; buying again while active extends b
   server, the KP Coin come back once and the player gets a private message.
 - **Away from the server:** a buyer keeps the purchase and its time runs on; everything returns
   when they come back. A clan member or room guest who leaves frees the seat.
+- **Taking a purchase back (decision 023):** `/отозвать <игрок>` shows that player's active
+  purchases with their end dates and what was paid; the administrator picks one and chooses
+  «🚫 Снять без возврата» or «↩️ Снять и вернуть монеты». The good ends exactly as it ends at
+  expiry, the player is told in a private message whether the coins came back, and the log
+  channel keeps the line. A refund gives back everything paid for that purchase, renewals
+  included, and can happen only once. The command is hidden from players; it is allowed by the
+  right «управлять магазином» in `/права`, so the owner can widen it beyond administrators. A
+  revoked good can be bought again.
 - **Settings:** the command `/настройки-магазина` (decision 016; listed only for members who can
   manage the server) — the channels for media access, the room
   category, the clan anchor role, switching each good on or off. Picking a channel lets the bot
@@ -244,7 +252,9 @@ expiry, renewal and refund are listed in §2; the new earnings in §1.
 
 ---
 
-Last verified: 2026-09-20 (§1: `/начислить` moves KP Coin by hand in both directions, decision 021
+Last verified: 2026-09-20 (§2: `/отозвать` takes a purchase back with or without a refund,
+decision 023 — checked by the automated suite, not yet walked on the live server;
+§1: `/начислить` moves KP Coin by hand in both directions, decision 021
 — checked by the automated suite, not yet walked on the live server; «Roles on the server» «as
 built»: rights are given to roles on `/права`,
 and the three admin commands are hidden from non-administrators — checked by the automated suite,
