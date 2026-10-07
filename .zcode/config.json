@@ -1,0 +1,38 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node \"${ZCODE_PROJECT_DIR}/tools/preflight.mjs\"",
+              "timeout": 120
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node \"${ZCODE_PROJECT_DIR}/tools/gate.mjs\" shell"
+            }
+          ]
+        },
+        {
+          "matcher": "Agent",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node \"${ZCODE_PROJECT_DIR}/tools/gate.mjs\" spawn"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

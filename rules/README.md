@@ -1,9 +1,11 @@
 # rules/ — the rule sources
 
-One file = one rule, filename = slug. Every rule is imported in full into `CLAUDE.md` with an
-`@rules/<slug>.md` line, so there is no generator and nothing to regenerate: **edit the rule file,
-add the import line for a new one, delete both for a removed one.** No numbering; a rule is named by
-its meaning.
+One file = one rule, filename = slug. Every rule is mirrored in full into the `Rules` section of
+`AGENTS.md` under a `### <slug>` heading pinned by a `<!-- mirror: <hash> -->` comment, so there
+is no generator and nothing to regenerate: **edit the rule file, then carry the change into its
+AGENTS.md block in the same pass** (`tools/preflight.mjs` recomputes the hashes at every session
+start and names a drift). A new rule gets its mirror block; a removed one loses both. No
+numbering; a rule is named by its meaning.
 
 ## File shape
 

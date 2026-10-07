@@ -17,7 +17,7 @@ AI attribution or co-author lines.
 2. **The pull request is opened with `gh pr create`**, body: what changed for the players, what
    verified it, the decision record it implements, open tails. The host is github.com, the
    repository is the one `origin` points at.
-3. **Code and configuration do not merge without a verdict** (rule `opus-decides-design` §4).
+3. **Code and configuration do not merge without a verdict** (rule `architect-decides-design` §4).
    The last commit of the branch carries `Reviewed: ACCEPTED <date>` or `ACCEPTED WITH CHANGES`
    with the changes made, or the honest escape `NO-REVIEW: <reason>` (prose-only changes,
    generated files). Prose and owner-facing docs need no verdict.

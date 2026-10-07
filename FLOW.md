@@ -1,11 +1,11 @@
 # Routes: product feature · infrastructure · rules and docs
 
 The order of work for a task, the stop conditions, and what «done» means. The rules are already
-in context (`CLAUDE.md`); this file is the sequence. Read your route before the first edit.
+in context (`AGENTS.md`); this file is the sequence. Read your route before the first edit.
 
 ## Route 0 — the empty repository
 
-**Your case when:** there is no `src/` yet. Run `/init-project` (`.claude/skills/init-project/`)
+**Your case when:** there is no `src/` yet. Run `/init-project` (`.zcode/skills/init-project/`)
 and nothing else; it is the whole first session.
 
 ## Route 1 — a product feature or a change in behaviour
@@ -21,7 +21,7 @@ touch the area; the module's own README under `src/<module>/` if one exists.
 
 1. Restate the request in one Russian sentence to the owner only if it is ambiguous; otherwise
    start. Product forks → owner (rule `owner-is-product`); technical forks → architect (rule
-   `opus-decides-design`), decision record first.
+   `architect-decides-design`), decision record first.
 2. Branch from a fresh `main` (rule `github-flow`).
 3. Build with tests: every guarantee from `spec.md` §6 that the change touches gets a test that
    fails if the guarantee breaks (double join, double payout, restart recovery).
@@ -67,13 +67,13 @@ version, the runbook and `docs/for-owner/status.md` say what is live.
 **Your case when:** agent behaviour must change («always», «never»), a rule or runbook is stale,
 a helper role or a hook changes.
 
-**Order:** edit the rule file (format `rules/README.md`); a new rule gets an `@rules/` import
-line in `CLAUDE.md`, a removed one loses both; a hook or gate change is tested by running
+**Order:** edit the rule file (format `rules/README.md`); a new rule gets a mirror block in
+`AGENTS.md`, a removed one loses both; a hook or gate change is tested by running
 `node tools/preflight.mjs` and `node tools/gate.mjs --self-test`; a decision behind a rule is a
 record. Weakening an invariant is the owner's call, explained in plain language.
 
 **Done when:** the next session's preflight is quiet and the rule reads correctly in
-`CLAUDE.md`.
+`AGENTS.md`.
 
 ## Sync map (what every route updates)
 
@@ -83,5 +83,5 @@ record. Weakening an invariant is the owner's call, explained in plain language.
 | a fork settled | `product/decisions/NNN`; the entry removed from `product/open-questions.md` |
 | a technical design | `product/decisions/NNN`; the pull request names it |
 | server, deploy, secrets | the runbook; `deploy/` files; `docs/for-owner/status.md` if live |
-| agent behaviour | `rules/`, `CLAUDE.md` import line, this file if a route changed |
+| agent behaviour | `rules/`, the `AGENTS.md` mirror, this file if a route changed |
 | any touched doc | the `Last verified: <date>` footer |
