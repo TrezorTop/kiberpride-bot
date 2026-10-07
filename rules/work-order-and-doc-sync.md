@@ -17,7 +17,7 @@ error. A doc that disagrees with the running bot is a unit of work, fixed in the
    two areas (economy and matches, shop and permissions). Small work inside one area: do it and
    report. An explicit task from the owner is finished, verified and merged, not left half-way.
 3. **The design fork goes to the architect** and is written into a decision record before the
-   code (rule `opus-decides-design`).
+   code (rule `architect-decides-design`).
 4. **Done means a machine said so:** the project gate (`npm run check` — typecheck, lint, tests —
    defined by `/init-project`) is green and quoted; for a server change, the live signal named in
    rule `bot-always-on` was observed. «It should work» is not done. A failing test is reported with

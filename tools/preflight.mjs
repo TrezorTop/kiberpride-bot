@@ -1,7 +1,9 @@
-// Session-start preflight (hook in .claude/settings.json). Prints NOTHING when all is well
-// (rule plain-language §7); one Russian line per problem otherwise. Never fails the session.
+// Session-start preflight (hook in .zcode/config.json). Emits NOTHING when all is well
+// (rule plain-language §7); one Russian line per problem otherwise, as hook JSON
+// `additionalContext`. Never fails the session.
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -81,7 +83,59 @@ for (const dir of ['runbooks', 'product']) {
 }
 if (stale.length) lines.push(`Давно не сверялись с реальностью (>60 дней): ${stale.join(', ')} — сверь и обнови дату.`);
 
+// 6. Rules mirror — every rules/*.md is mirrored in full into AGENTS.md, pinned by a hash
+//    comment, so every session starts with every rule in context. Both the hash and the body
+//    are compared, so a change on either side alone is named. CRLF is normalised so the hash
+//    does not depend on the machine's checkout.
+function ruleBody(raw) {
+  return raw
+    .replace(/^---\n[\s\S]*?\n---\n/, '')
+    .replace(/^\s+/, '')
+    .replace(/^#[^\n]*\n/, '')
+    .replace(/^\s+/, '')
+    .replace(/\s+$/, '');
+}
+const rulesDir = resolve(root, 'rules');
+if (existsSync(rulesDir)) {
+  const agentsMd = resolve(root, 'AGENTS.md');
+  if (!existsSync(agentsMd)) {
+    lines.push('Нет AGENTS.md — зеркалу правил из rules/ некуда писаться; восстанови по FLOW.md Route 3.');
+  } else {
+    const md = readFileSync(agentsMd, 'utf8').split('\n');
+    const slugs = new Set(
+      readdirSync(rulesDir).filter((x) => x.endsWith('.md') && x !== 'README.md').map((x) => x.replace(/\.md$/, '')),
+    );
+    for (const f of [...slugs].sort()) {
+      const slug = f;
+      const raw = readFileSync(resolve(rulesDir, `${f}.md`), 'utf8').replace(/\r\n/g, '\n');
+      const hash = createHash('sha256').update(raw).digest('hex').slice(0, 12);
+      const h = md.findIndex((l) => l === `### ${slug}` || l.startsWith(`### ${slug} `));
+      const cm = h !== -1 && /^<!-- mirror: ([0-9a-f]{12}) -->$/.exec(md[h + 2] ?? '');
+      if (h === -1 || !cm) {
+        lines.push(`Правило ${slug} не отзеркалено в AGENTS.md — добавь блок с хешем <!-- mirror: ... --> (FLOW.md Route 3).`);
+        continue;
+      }
+      const body = [];
+      for (let i = h + 4; i < md.length && !md[i].startsWith('### ') && !md[i].startsWith('## '); i++) body.push(md[i]);
+      if (cm[1] !== hash || body.join('\n').replace(/\s+$/, '') !== ruleBody(raw)) {
+        lines.push(`Зеркало правила ${slug} в AGENTS.md расходится с rules/${slug}.md — перенеси правку и обнови хеш (FLOW.md Route 3).`);
+      }
+    }
+    // A mirror block whose rule file is gone (a deletion or rename that left the block behind)
+    // would keep feeding a dead rule into every session's context — name it.
+    for (let i = 0; i < md.length; i++) {
+      const hm = /^### ([a-z0-9-]+)/.exec(md[i] ?? '');
+      if (hm && /^<!-- mirror: [0-9a-f]{12} -->$/.test(md[i + 2] ?? '') && !slugs.has(hm[1])) {
+        lines.push(`Зеркало правила ${hm[1]} в AGENTS.md осталось без файла rules/${hm[1]}.md — удали блок (FLOW.md Route 3).`);
+      }
+    }
+  }
+}
+
 if (lines.length) {
-  console.log('Preflight KiberPride Bot — скажи владельцу одной строкой в начале ответа только то, что его касается:');
-  for (const l of lines) console.log('  • ' + l);
+  const text = [
+    'Preflight KiberPride Bot — скажи владельцу одной строкой в начале ответа только то, что его касается:',
+    ...lines.map((l) => '  • ' + l),
+  ].join('\n');
+  console.log(JSON.stringify({ additionalContext: text }));
 }

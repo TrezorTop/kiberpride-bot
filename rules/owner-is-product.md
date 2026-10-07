@@ -18,7 +18,7 @@ language, with every consequence spelled out.
 2. **The agent's territory, decided alone:** the stack, the code structure, the database, tests,
    git and GitHub, the hosting provider's mechanics, deployment, monitoring, backups, restarts,
    secret handling. Two reasonable technical options is still the agent's call: the architect rules
-   (rule `opus-decides-design`), the decision is recorded, the owner is not consulted.
+   (rule `architect-decides-design`), the decision is recorded, the owner is not consulted.
 3. **What only the owner's hands can do:** create the Discord application and copy its token,
    create a Discord server or invite the bot, register with a hosting provider, pay, paste an SSH
    public key into the provider's panel, sign in to GitHub in the browser. For each such step the

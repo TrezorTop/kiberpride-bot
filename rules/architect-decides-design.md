@@ -1,11 +1,11 @@
 ---
-id: opus-decides-design
+id: architect-decides-design
 tier: practice
 ---
 
 # Design is decided by the architect, written down before code, refuted before merge
 
-**Digest:** Any architectural or research decision belongs to the `architect` role (Opus), not to
+**Digest:** Any architectural or research decision belongs to the `architect` role, not to
 whoever is writing the code, and it is WRITTEN into `product/decisions/` BEFORE the first commit of
 that work. A closed step is reviewed by an architect on fresh context with «refute this» BEFORE the
 merge. The owner outranks the architect on product; the architect outranks everyone on the
@@ -39,5 +39,5 @@ technical side.
 local, almost always past the class of the problem — and six defects in a day turn out to be six
 instances of two recurring design errors. A decision about the model belongs to whatever looks at
 the area as a whole, and it must be written, because chat memory does not survive compaction.
-Carried over from the Rubik VPN harness, where this was measured, with Opus in the architect's
-seat (owner's decision 2026-09-19: Opus is the top model on this project).
+Carried over from the Rubik VPN harness, where this was measured. The architect's seat is the
+session model since the harness moved to ZCode (owner's decision 2026-10-07, decision 025).
